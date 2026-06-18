@@ -26,7 +26,7 @@ BUILD_DIR = build
 LD_SCRIPT = N32H473CEUx_FLASH.ld
 
 # USER_DEFS: user defined macros
-USER_DEFS = -DHSE_VALUE=8000000 -DN32H473
+USER_DEFS = -DHSE_VALUE=8000000 -DN32H473 -DARM_MATH_CM4
 
 # USER_INCLUDES: user defined includes
 USER_INCLUDES =
@@ -149,7 +149,7 @@ $(USB_BUILD_DIR):
 # List of user program objects
 OBJECTS = $(addprefix $(BUILD_DIR)/,$(notdir $(SOURCES:.c=.o)))
 # Add startup code
-OBJECTS += $(BUILD_DIR)/startup_n32h473.o
+OBJECTS += $(BUILD_DIR)/startup_n32h47x_48x_gcc.o
 
 # Libraries to link
 LIBS = -ln32hal -ln32usb -lc -lm -lnosys
