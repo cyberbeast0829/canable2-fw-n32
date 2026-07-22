@@ -176,8 +176,19 @@ $(BUILD_DIR)/%.o: src/%.s | $(BUILD_DIR)
 $(BUILD_DIR):
 	$(MKDIR) $@
 
+# Debug target - builds with a fixed ELF name for VS Code debugging
+DEBUG_TARGET = debug
+
+debug: $(BUILD_DIR)/$(DEBUG_TARGET).elf
+
+$(BUILD_DIR)/$(DEBUG_TARGET).elf: $(OBJECTS) $(HAL_LIB) $(USB_LIB)
+	$(CC) -o $@ $(CFLAGS) $(OBJECTS) \
+		$(LDFLAGS) -Xlinker \
+		-Map=$(BUILD_DIR)/$(DEBUG_TARGET).map
+	$(SIZE) $@
+
 # Clean
 clean:
 	-rm -rf $(BUILD_DIR)
 
-.PHONY: clean all hal usb flash
+.PHONY: clean all hal usb flash debug
