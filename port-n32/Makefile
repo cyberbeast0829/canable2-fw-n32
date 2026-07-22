@@ -8,7 +8,7 @@
 #######################################
 
 # SOURCES: list of sources in the user application
-SOURCES = main.c system.c can.c slcan.c led.c error.c printf.c interrupts.c usbd_cdc_if.c usb_istr.c
+SOURCES = main.c system.c system_n32h47x_48x.c can.c slcan.c led.c error.c printf.c interrupts.c usbd_cdc_if.c usb_istr.c
 
 # Get git version and dirty flag
 GIT_VERSION := $(shell git describe --abbrev=7 --dirty --always --tags)
@@ -26,7 +26,7 @@ BUILD_DIR = build
 LD_SCRIPT = N32H473CEUx_FLASH.ld
 
 # USER_DEFS: user defined macros
-USER_DEFS = -DHSE_VALUE=8000000 -DN32H473 -DARM_MATH_CM4
+USER_DEFS = -DHSE_VALUE=24000000 -DN32H473 -DARM_MATH_CM4
 
 # USER_INCLUDES: user defined includes
 USER_INCLUDES =

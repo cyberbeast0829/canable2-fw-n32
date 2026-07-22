@@ -13,42 +13,12 @@
 #include "n32h47x_48x_conf.h"
 #include "system.h"
 
-// HSE crystal frequency
-#ifndef HSE_VALUE
-#define HSE_VALUE 8000000
-#endif
-
-// SystemCoreClock variable (required by CMSIS)
-uint32_t SystemCoreClock = 240000000;
 
 // System tick counter (incremented every 1ms by SysTick ISR)
 static volatile uint32_t system_ticks = 0;
 
 // Private functions
 static void __option_byte_config(void);
-
-
-/**
- * @brief  SystemInit - called from startup before main().
- *         Minimal hardware initialization: FPU, cache, vector table.
- */
-void SystemInit(void)
-{
-    // Enable FPU
-    #if (__FPU_PRESENT == 1) && (__FPU_USED == 1)
-    SCB->CPACR |= ((3UL << 10*2) | (3UL << 11*2));  // Full access to CP10/CP11
-    #endif
-
-    // Set interrupt priority grouping: 4 bits preemption, 0 bits subpriority
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_4);
-
-    // Configure vector table offset (Flash base)
-    SCB->VTOR = FLASH_BASE;
-
-    // Enable SRAM clock for ECC
-    RCC->AHB1PCLKEN |= RCC_AHB_PERIPHEN_SRAM;
-}
-
 
 /**
  * @brief  Initialize system clocks for N32H473CEU7.

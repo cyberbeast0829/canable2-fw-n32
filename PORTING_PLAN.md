@@ -260,7 +260,7 @@ NVIC_Init(&NVIC_InitStructure);
 TARGET_DEVICE = N32H473
 
 # 定义
-USER_DEFS = -DHSE_VALUE=8000000 -DN32H473
+USER_DEFS = -DHSE_VALUE=24000000 -DN32H473
 
 # 源码 (替换为 N32 的文件)
 SOURCES = main.c system.c can.c slcan.c led.c error.c printf.c
