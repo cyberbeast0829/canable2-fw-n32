@@ -191,6 +191,9 @@ void CDC_EP1_OUT_Callback(void)
             error_assert(ERR_FULLBUF_USBRX);
         }
     }
+
+    // Re-arm EP1 OUT to receive next packet
+    SetEPRxStatus(ENDP1, EP_RX_VALID);
 }
 
 
