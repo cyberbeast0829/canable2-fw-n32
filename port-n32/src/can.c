@@ -83,24 +83,24 @@ void can_init(void)
     GPIO_InitStruct(&gpio);
 
     // CAN Standby pin (PA0) - turn standby off (active low)
-    gpio.Pin = GPIO_PIN_0;
-    gpio.GPIO_Mode = GPIO_MODE_OUTPUT_PP;
-    gpio.GPIO_Pull = GPIO_PULL_DOWN;
-    gpio.GPIO_Slew_Rate = GPIO_SLEW_RATE_SLOW;
-    gpio.GPIO_Current = GPIO_DC_2mA;
-    gpio.GPIO_Alternate = 0;
-    GPIO_InitPeripheral(GPIOA, &gpio);
-    GPIO_WriteBits(GPIOA, GPIO_PIN_0, Bit_RESET); // STB = low (active)
+    // gpio.Pin = GPIO_PIN_0;
+    // gpio.GPIO_Mode = GPIO_MODE_OUTPUT_PP;
+    // gpio.GPIO_Pull = GPIO_PULL_DOWN;
+    // gpio.GPIO_Slew_Rate = GPIO_SLEW_RATE_SLOW;
+    // gpio.GPIO_Current = GPIO_DC_2mA;
+    // gpio.GPIO_Alternate = 0;
+    // GPIO_InitPeripheral(GPIOA, &gpio);
+    // GPIO_WriteBits(GPIOA, GPIO_PIN_0, Bit_RESET); // STB = low (active)
 
     // CAN IO power (PC13) - enable CAN transceiver power
-    gpio.Pin = GPIO_PIN_13;
-    gpio.GPIO_Pull = GPIO_PULL_DOWN;
-    GPIO_InitPeripheral(GPIOC, &gpio);
-    GPIO_WriteBits(GPIOC, GPIO_PIN_13, Bit_SET);  // Power ON
+    // gpio.Pin = GPIO_PIN_13;
+    // gpio.GPIO_Pull = GPIO_PULL_DOWN;
+    // GPIO_InitPeripheral(GPIOC, &gpio);
+    // GPIO_WriteBits(GPIOC, GPIO_PIN_13, Bit_SET);  // Power ON
 
-    // FDCAN1_RX on PB8 (AF26), FDCAN1_TX on PB9 (AF25)
+    // FDCAN1_RX on PB12 (AF26), FDCAN1_TX on PB13 (AF25)
     // Note: N32 FDCAN1 TX and RX use DIFFERENT alternate function numbers!
-    gpio.Pin = GPIO_PIN_8;
+    gpio.Pin = GPIO_PIN_12;
     gpio.GPIO_Mode = GPIO_MODE_AF_PP;
     gpio.GPIO_Pull = GPIO_PULL_UP;
     gpio.GPIO_Slew_Rate = GPIO_SLEW_RATE_FAST;
@@ -108,15 +108,15 @@ void can_init(void)
     gpio.GPIO_Alternate = GPIO_AF_FDCAN1_RX;  // AF26
     GPIO_InitPeripheral(GPIOB, &gpio);
 
-    gpio.Pin = GPIO_PIN_9;
+    gpio.Pin = GPIO_PIN_13;
     gpio.GPIO_Alternate = GPIO_AF_FDCAN1_TX;  // AF25
     GPIO_InitPeripheral(GPIOB, &gpio);
 
     // Build FDCAN init structure (no InitStruct function in N32 HAL — zero it out)
     memset(&can_handle, 0, sizeof(can_handle));
 
-    // Default to 125 kbit/s nominal, 2M data
-    can_set_bitrate(CAN_BITRATE_125K);
+    // Default to 1M nominal, 2M data
+    can_set_bitrate(CAN_BITRATE_1000K);
     can_set_data_bitrate(CAN_DATA_BITRATE_2M);
 
     can_handle.FrameFormat = FDCAN_FRAME_FD_BRS;
