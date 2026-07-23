@@ -36,8 +36,8 @@ void usb_init(void)
     GPIO_InitType gpio;
 
     // Configure USB clock: PLL output → /5 → 48MHz for USB FS
-    RCC_ConfigUSBPLLPresClk(RCC_USBPLLCLK_SRC_PLL, RCC_USBPLLCLK_DIV5);
     RCC_ConfigUSBFSClk(RCC_USBFS_CLKSRC_PLLPRES);
+    RCC_ConfigUSBPLLPresClk(RCC_USBPLLCLK_SRC_PLL, RCC_USBPLLCLK_DIV5);
     RCC->CFG3 |= RCC_CFG3_USBFSTM;
 
     // Enable USB clock
@@ -141,8 +141,8 @@ void cdc_process(void)
         if (available > 0)
         {
             // USB_SilWrite(endpoint_address, data, length)
-            // EP2 IN: endpoint address = 0x82 (IN direction, EP2)
-            USB_SilWrite(0x82, &txbuf.data[txbuf.tail], available);
+            // EP1 IN: endpoint address = 0x81 (IN direction, EP1 — CDC bulk data)
+            USB_SilWrite(0x81, &txbuf.data[txbuf.tail], available);
             txbuf.tail = (txbuf.tail + available) % USBTXQUEUE_LEN;
             tx_active = 1;
         }

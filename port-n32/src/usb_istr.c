@@ -1,78 +1,39 @@
 /**
  * @file    usb_istr.c
- * @brief   USB interrupt service routine and application stubs for N32 CANable2
+ * @brief   USB ISTR events interrupt service routine
+ *
+ * Based on ODrive/Nations usb_istr.c.  Provides USB_Istr() and the
+ * endpoint callback function pointer arrays.
  */
 
-#include "n32h47x_48x.h"
 #include "usbfsd_lib.h"
+#include "usb_prop.h"
+#include "usb_pwr.h"
 #include "usb_conf.h"
-#include "usbd_cdc_if.h"
 
-/* These global variables are required by the N32 USB library.
-   They are defined here (application level), not in the library itself. */
 __IO uint16_t wIstr;
-__IO uint8_t  bIntPackSOF = 0;
-__IO uint32_t esof_counter = 0;
-__IO uint32_t wCNTR = 0;
-extern __IO uint16_t SaveRState;
-extern __IO uint16_t SaveTState;
-extern uint16_t wInterrupt_Mask;
+__IO uint8_t  bIntPackSOF   = 0;
+__IO uint32_t esof_counter  = 0;
+__IO uint32_t wCNTR         = 0;
 
-/* USB Device Table - required by N32 USB library */
-USB_Device Device_Table = {
-    .TotalEndpoint = EP_NUM,
-    .TotalConfiguration = 1
-};
+/* Forward declarations of endpoint callbacks (defined in usb_endp.c) */
+extern void EP1_IN_Callback(void);
+extern void EP1_OUT_Callback(void);
+extern void EP2_IN_Callback(void);
 
-/* USB Device Info - defined in N32 USB library (usbfsd_init.c) */
-extern USB_DeviceMess Device_Info;
-
-/* USB Device Property callbacks */
-DEVICE_PROP Device_Property = {
-    .Init = (void(*)(void))USB_ProcessNop,
-    .Reset = (void(*)(void))USB_ProcessNop,
-    .Process_Status_IN = (void(*)(void))USB_ProcessNop,
-    .Process_Status_OUT = (void(*)(void))USB_ProcessNop,
-    .Class_Data_Setup = 0,
-    .Class_NoData_Setup = 0,
-    .Class_Get_Interface_Setting = 0,
-    .GetDeviceDescriptor = 0,
-    .GetConfigDescriptor = 0,
-    .GetStringDescriptor = 0,
-    .RxEP_buffer = 0,
-    .MaxPacketSize = 64,
-};
-
-/* Standard requests handler */
-USER_STANDARD_REQUESTS User_Standard_Requests = {
-    .User_GetConfiguration = (void(*)(void))USB_ProcessNop,
-    .User_SetConfiguration = (void(*)(void))USB_ProcessNop,
-    .User_GetInterface = (void(*)(void))USB_ProcessNop,
-    .User_SetInterface = (void(*)(void))USB_ProcessNop,
-    .User_GetStatus = (void(*)(void))USB_ProcessNop,
-    .User_ClearFeature = (void(*)(void))USB_ProcessNop,
-    .User_SetEndPointFeature = (void(*)(void))USB_ProcessNop,
-    .User_SetDeviceFeature = (void(*)(void))USB_ProcessNop,
-    .User_SetDeviceAddress = (void(*)(void))USB_ProcessNop,
-};
-
-/* Stub callbacks for unused endpoints */
-static void EPn_Nop(void) {}
-
-/* Endpoint IN callback function pointer array */
+/* endpoint callback arrays */
 void (*pEpInt_IN[7])(void) = {
-    EPn_Nop,           /* EP1 IN (unused) */
-    EP2_IN_Callback,   /* EP2 IN (CDC data to host) */
-    EP3_IN_Callback,   /* EP3 IN (CDC interrupt) */
+    EP1_IN_Callback,
+    EP2_IN_Callback,
+    EP3_IN_Callback,
     EP4_IN_Callback,
     EP5_IN_Callback,
     EP6_IN_Callback,
     EP7_IN_Callback,
 };
 
-/* Endpoint OUT callback function pointer array */
 void (*pEpInt_OUT[7])(void) = {
-    CDC_EP1_OUT_Callback,  /* EP1 OUT (CDC data from host) */
+    EP1_OUT_Callback,
     EP2_OUT_Callback,
     EP3_OUT_Callback,
     EP4_OUT_Callback,
@@ -81,51 +42,98 @@ void (*pEpInt_OUT[7])(void) = {
     EP7_OUT_Callback,
 };
 
-// Forward declarations of USB library internal functions
-extern void USB_CorrectTransferLp(void);
 
-
-/**
- * @brief  USB interrupt service routine (called from USB_FS_LP_IRQHandler)
- */
 void USB_Istr(void)
 {
     wIstr = _GetISTR();
 
-    // Correct transfer interrupt
+#if (IMR_MSK & STS_CTRS)
     if (wIstr & STS_CTRS & wInterrupt_Mask)
     {
         USB_CorrectTransferLp();
     }
+#endif
 
-    // Reset interrupt
+#if (IMR_MSK & STS_RST)
     if (wIstr & STS_RST & wInterrupt_Mask)
     {
         _SetISTR((uint16_t)CLR_RST);
+        Device_Property.Init();
+        Device_Property.Reset();
     }
+#endif
 
-    // Wakeup interrupt
+#if (IMR_MSK & STS_DOVR)
+    if (wIstr & STS_DOVR & wInterrupt_Mask)
+    {
+        _SetISTR((uint16_t)CLR_DOVR);
+    }
+#endif
+
+#if (IMR_MSK & STS_ERROR)
+    if (wIstr & STS_ERROR & wInterrupt_Mask)
+    {
+        _SetISTR((uint16_t)CLR_ERROR);
+    }
+#endif
+
+#if (IMR_MSK & STS_WKUP)
     if (wIstr & STS_WKUP & wInterrupt_Mask)
     {
         _SetISTR((uint16_t)CLR_WKUP);
+        Resume(RESUME_EXTERNAL);
     }
+#endif
 
-    // Suspend interrupt
+#if (IMR_MSK & STS_SUSPD)
     if (wIstr & STS_SUSPD & wInterrupt_Mask)
     {
+        if (fSuspendEnabled)
+            Suspend();
+        else
+            Resume(RESUME_LATER);
         _SetISTR((uint16_t)CLR_SUSPD);
     }
+#endif
 
-    // SOF interrupt
+#if (IMR_MSK & STS_SOF)
     if (wIstr & STS_SOF & wInterrupt_Mask)
     {
         _SetISTR((uint16_t)CLR_SOF);
         bIntPackSOF++;
     }
+#endif
 
-    // Expected SOF interrupt
-    if (wIstr & STS_ESOF & wInterrupt_Mask)
+#if (IMR_MSK & STS_ESOF)
     {
-        _SetISTR((uint16_t)CLR_ESOF);
+        uint32_t i = 0;
+        __IO uint32_t EP[8];
+        if (wIstr & STS_ESOF & wInterrupt_Mask)
+        {
+            _SetISTR((uint16_t)CLR_ESOF);
+            if ((_GetFNR() & FN_RXDP) != 0)
+            {
+                esof_counter++;
+                if ((esof_counter > 3) && ((_GetCNTR() & CTRL_FSUSPD) == 0))
+                {
+                    wCNTR = _GetCNTR();
+                    for (i = 0; i < 8; i++)
+                        EP[i] = _GetENDPOINT(i);
+                    wCNTR |= CTRL_FRST;
+                    _SetCNTR(wCNTR);
+                    wCNTR &= ~CTRL_FRST;
+                    _SetCNTR(wCNTR);
+                    while ((_GetISTR() & STS_RST) == 0);
+                    _SetISTR((uint16_t)CLR_RST);
+                    Device_Property.Init();
+                    Device_Property.Reset();
+                }
+            }
+            else
+            {
+                esof_counter = 0;
+            }
+        }
     }
+#endif
 }

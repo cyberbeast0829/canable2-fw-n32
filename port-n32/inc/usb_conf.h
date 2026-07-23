@@ -1,45 +1,43 @@
 /**
  * @file    usb_conf.h
- * @brief   USB Device configuration for CANable2-N32
+ * @brief   USB Device configuration for CANable2-N32 (CDC ACM)
+ *
+ * Endpoint layout (matching ODrive verified config):
+ *   EP0: Control (bidirectional)
+ *   EP1: Bulk IN + OUT  — CDC data (64 bytes)
+ *   EP2: Interrupt IN     — CDC notification (8 bytes)
  */
 
 #ifndef __USB_CONF_H
 #define __USB_CONF_H
 
-// Number of endpoints
+/* Number of endpoints (excluding EP0) */
 #define EP_NUM                      (4)
 
-// Buffer table base address in USB packet memory
+/* Buffer table base in USB packet memory (512 bytes total) */
 #define BTABLE_ADDRESS              (0x00)
 
-// EP0 addresses (control endpoint)
+/* EP0 addresses (control: 64 bytes each direction) */
 #define ENDP0_RXADDR                (0x40)
 #define ENDP0_TXADDR                (0x80)
 
-// EP1 - CDC data OUT (host → device)
+/* EP1 addresses — CDC Bulk (64 bytes each direction) */
 #define ENDP1_RXADDR                (0xC0)
-#define ENDP1_TXADDR                (0x100)
+#define ENDP1_TXADDR                (0x110)
 
-// EP2 - CDC data IN (device → host)
-#define ENDP2_TXADDR                (0x140)
+/* EP2 addresses — CDC Interrupt IN (8 bytes) */
+#define ENDP2_TXADDR                (0x150)
 
-// EP3 - CDC interrupt IN
-#define ENDP3_TXADDR                (0x180)
-
-// Interrupt mask
+/* Interrupt mask: Correct Transfer | Reset | Wakeup */
 #define IMR_MSK (CTRL_CTRSM | CTRL_WKUPM | CTRL_RSTM)
 
-// CDC endpoint numbers
-#define CDC_DATA_EP_IN              2
-#define CDC_DATA_EP_OUT             1
-#define CDC_INT_EP_IN               3
+/* CDC class-specific request codes (not provided by N32 USB library) */
+#define SET_LINE_CODING         0x20
+#define GET_LINE_CODING         0x21
+#define SET_CONTROL_LINE_STATE  0x22
+#define SET_COMM_FEATURE        0x02
 
-// CDC data packet size
-#define CDC_DATA_FS_MAX_PACKET_SIZE 64
-
-// Callback definitions
-#define EP1_OUT_Callback    CDC_EP1_OUT_Callback
-#define EP2_IN_Callback     USB_ProcessNop
+/* Unused endpoint callbacks → library no-op (matching ODrive pattern) */
 #define EP3_IN_Callback     USB_ProcessNop
 #define EP4_IN_Callback     USB_ProcessNop
 #define EP5_IN_Callback     USB_ProcessNop

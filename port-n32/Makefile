@@ -8,7 +8,7 @@
 #######################################
 
 # SOURCES: list of sources in the user application
-SOURCES = main.c system.c system_n32h47x_48x.c can.c slcan.c led.c error.c printf.c interrupts.c usbd_cdc_if.c usb_istr.c
+SOURCES = main.c system.c system_n32h47x_48x.c can.c slcan.c led.c error.c printf.c interrupts.c usbd_cdc_if.c usb_istr.c usb_desc.c usb_prop.c usb_pwr.c usb_endp.c
 
 # Get git version and dirty flag
 GIT_VERSION := $(shell git describe --abbrev=7 --dirty --always --tags)
