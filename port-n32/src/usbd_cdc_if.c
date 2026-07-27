@@ -21,7 +21,14 @@
 static usbrx_buf_t rxbuf = {0};
 static usbtx_buf_t txbuf = {0};
 static uint8_t rx_packet_buf[CDC_DATA_FS_MAX_PACKET_SIZE];
-static uint8_t tx_active = 0;
+static volatile uint8_t tx_active = 0;
+
+
+// Called by EP1_IN_Callback when TX completes
+void cdc_tx_done(void)
+{
+    tx_active = 0;
+}
 
 
 // Forward declarations
@@ -140,9 +147,10 @@ void cdc_process(void)
 
         if (available > 0)
         {
-            // USB_SilWrite(endpoint_address, data, length)
-            // EP1 IN: endpoint address = 0x81 (IN direction, EP1 — CDC bulk data)
-            USB_SilWrite(0x81, &txbuf.data[txbuf.tail], available);
+            // Use ODrive pattern: CopyUserToPMABuf + SetEpTxCnt + SetEpTxValid
+            USB_CopyUserToPMABuf(&txbuf.data[txbuf.tail], ENDP1_TXADDR, available);
+            USB_SetEpTxCnt(ENDP1, available);
+            USB_SetEpTxValid(ENDP1);       // arm endpoint for transmission
             txbuf.tail = (txbuf.tail + available) % USBTXQUEUE_LEN;
             tx_active = 1;
         }

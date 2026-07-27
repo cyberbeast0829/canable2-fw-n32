@@ -12,6 +12,7 @@
 
 /* External: CDC receive callback in usbd_cdc_if.c */
 extern void CDC_EP1_OUT_Callback(void);
+extern void cdc_tx_done(void);    /* signal TX complete, reset tx_active */
 
 
 /**
@@ -20,8 +21,8 @@ extern void CDC_EP1_OUT_Callback(void);
  */
 void EP1_IN_Callback(void)
 {
-    /* Set NAK to signal we're done with this transfer */
     SetEPTxStatus(ENDP1, EP_TX_NAK);
+    cdc_tx_done();    /* allow next queued packet to be sent */
 }
 
 
