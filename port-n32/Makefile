@@ -38,6 +38,9 @@ ifneq ($(EXTERNAL_OSCILLATOR), 1)
 USER_CFLAGS += -DINTERNAL_OSCILLATOR
 endif
 
+# Uncomment for CAN loopback test (no external CAN bus needed)
+# USER_CFLAGS += -DCAN_LOOPBACK_TEST
+
 # USER_LDFLAGS: user LD flags
 USER_LDFLAGS = -fno-exceptions -ffunction-sections -fdata-sections -Wl,--gc-sections
 
