@@ -30,8 +30,8 @@ static FDCAN_MsgRamType can_msg_ram;
 
 // Private variables
 static FDCAN_InitType can_handle;
-static uint32_t prescaler;
-static uint32_t data_prescaler;
+static uint32_t prescaler, sync_jump_width, time_seg1, time_seg2;
+static uint32_t data_prescaler, data_sync_jump_width, data_time_seg1, data_time_seg2;
 enum can_bus_state bus_state;
 static uint8_t can_autoretransmit = ENABLE;
 static can_txbuf_t txqueue = {0};
@@ -101,7 +101,7 @@ void can_init(void)
     // FDCAN1_RX on PB12 (AF26), FDCAN1_TX on PB13 (AF25)
     // Note: N32 FDCAN1 TX and RX use DIFFERENT alternate function numbers!
     gpio.Pin = GPIO_PIN_12;
-    gpio.GPIO_Mode = GPIO_MODE_AF_PP;
+    gpio.GPIO_Mode = GPIO_MODE_INPUT;
     gpio.GPIO_Pull = GPIO_PULL_UP;
     gpio.GPIO_Slew_Rate = GPIO_SLEW_RATE_FAST;
     gpio.GPIO_Current = GPIO_DC_12mA;
@@ -109,6 +109,7 @@ void can_init(void)
     GPIO_InitPeripheral(GPIOB, &gpio);
 
     gpio.Pin = GPIO_PIN_13;
+    gpio.GPIO_Mode = GPIO_MODE_AF_PP;
     gpio.GPIO_Alternate = GPIO_AF_FDCAN1_TX;  // AF25
     GPIO_InitPeripheral(GPIOB, &gpio);
 
@@ -120,22 +121,26 @@ void can_init(void)
     can_set_data_bitrate(CAN_DATA_BITRATE_2M);
 
     can_handle.FrameFormat = FDCAN_FRAME_FD_BRS;
+#ifdef CAN_LOOPBACK_TEST
+    can_handle.Mode = FDCAN_MODE_INTERNAL_LOOPBACK;  // 自收发测试
+#else
     can_handle.Mode = FDCAN_MODE_NORMAL;
+#endif
     can_handle.AutoRetransmission = can_autoretransmit;
     can_handle.TransmitPause = DISABLE;
     can_handle.ProtocolException = DISABLE;
 
     // CAN bit timing (will be updated by can_set_bitrate)
-    can_handle.Prescaler = prescaler;
-    can_handle.SyncJumpWidth = 1;
-    can_handle.TimeSeg1 = 14;
-    can_handle.TimeSeg2 = 2;
+    can_handle.Prescaler = 1;
+    can_handle.SyncJumpWidth = 2;
+    can_handle.TimeSeg1 = 34;
+    can_handle.TimeSeg2 = 5;
 
     // CAN FD data bit timing
-    can_handle.DataPrescaler = data_prescaler;
+    can_handle.DataPrescaler = 1;
     can_handle.DataSyncJumpWidth = 1;
     can_handle.DataTimeSeg1 = 14;
-    can_handle.DataTimeSeg2 = 2;
+    can_handle.DataTimeSeg2 = 5;
 
     // Message RAM configuration
     can_handle.MsgRamStrAddr = (uint32_t)FDCAN_ram;
@@ -152,7 +157,7 @@ void can_init(void)
     can_handle.RxBufferSize = 0;
     can_handle.RxBufferDataSize = FDCAN_DATA_BYTES_8;
     can_handle.TxBufferSize = 0;
-    can_handle.TxBufferDataSize = FDCAN_DATA_BYTES_8;
+    can_handle.TxBufferDataSize = FDCAN_DATA_BYTES_64;
     can_handle.TxFifoQueueSize = 8;
     can_handle.TxFifoQueueMode = FDCAN_TX_FIFO_MODE;
     can_handle.TxEventSize = 0;
@@ -171,7 +176,13 @@ void can_enable(void)
 
         // Apply current bitrate settings
         can_handle.Prescaler = prescaler;
+        can_handle.SyncJumpWidth = sync_jump_width;
+        can_handle.TimeSeg1 = time_seg1;
+        can_handle.TimeSeg2 = time_seg2;
         can_handle.DataPrescaler = data_prescaler;
+        can_handle.DataSyncJumpWidth = data_sync_jump_width;
+        can_handle.DataTimeSeg1 = data_time_seg1;
+        can_handle.DataTimeSeg2 = data_time_seg2;
 
         // Initialize FDCAN
         FDCAN_Init(FDCAN1, &can_handle);
@@ -213,7 +224,10 @@ void can_set_data_bitrate(enum can_data_bitrate bitrate)
 
     switch (bitrate) {
         case CAN_DATA_BITRATE_2M:
-            data_prescaler = 5; // 40M / (5*17) ≈ 470k... 
+            data_prescaler = 1;
+            data_sync_jump_width = 1;
+            data_time_seg1 = 14;
+            data_time_seg2 = 5; // 采样点：（1+14）/（1+14+5）≈ 0.75
             break;              // Actually 40M/5=8M, 8M/17≈470k
                                 // Let's recalibrate: for 2M with 40M clock:
                                 // 40M / 2M = 20 tq total needed
@@ -222,7 +236,10 @@ void can_set_data_bitrate(enum can_data_bitrate bitrate)
                                 // 40M / (1*17) ≈ 2.35M (close enough for CAN FD)
         case CAN_DATA_BITRATE_5M:
         default:
-            data_prescaler = 1; // 40M / (1*17) ≈ 2.35M (for 5M, need different TQ)
+            data_prescaler = 1;
+            data_sync_jump_width = 1;
+            data_time_seg1 = 5;
+            data_time_seg2 = 2; // 采样点：（1+5）/（1+5+2）≈ 0.75
             break;
     }
     led_green_on();
@@ -235,39 +252,107 @@ void can_set_bitrate(enum can_bitrate bitrate)
     if (bus_state == ON_BUS) return;
 
     // CAN clock = 40MHz. Formula: baud = 40M / (prescaler * (TimeSeg1+TimeSeg2+1))
-    // With TimeSeg1=14, TimeSeg2=2: total_tq = 17
-    // prescaler = 40M / (baud * 17)
     switch (bitrate) {
-        case CAN_BITRATE_10K:
-            prescaler = 235;  // 40M / (235*17) ≈ 10.0k
+        case CAN_BITRATE_10K: // 40M / (100*(34+5+1)) ≈ 10k
+            prescaler = 100;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5; // 采样点：（1+34）/（1+34+5）≈ 0.875
+            data_prescaler = 100;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_20K:
-            prescaler = 118;  // 40M / (118*17) ≈ 19.9k
+            prescaler = 50;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 50;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_50K:
-            prescaler = 47;   // 40M / (47*17) ≈ 50.1k
+            prescaler = 20;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 20;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_83_3K:
-            prescaler = 28;   // 40M / (28*17) ≈ 84.0k
+            prescaler = 12;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 12;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_100K:
-            prescaler = 23;   // 40M / (23*17) ≈ 102k
+            prescaler = 10;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 10;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_125K:
-            prescaler = 19;   // 40M / (19*17) ≈ 124k
+            prescaler = 8;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 19;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_250K:
-            prescaler = 9;    // 40M / (9*17) ≈ 261k (use 10 for 235k)
+            prescaler = 4;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 9;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_500K:
-            prescaler = 5;    // 40M / (5*17) ≈ 470k
+            prescaler = 2;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 5;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
         case CAN_BITRATE_750K:
-            prescaler = 3;    // 40M / (3*17) ≈ 784k
+            prescaler = 2; // 40M / (2*(22+4+1)) ≈ 740.7k
+            sync_jump_width = 2;
+            time_seg1 = 22;
+            time_seg2 = 4;
+            data_prescaler = 2;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 22;
+            data_time_seg2 = 4;
             break;
         case CAN_BITRATE_1000K:
         default:
-            prescaler = 2;    // 40M / (2*17) ≈ 1.18M
+            prescaler = 1;
+            sync_jump_width = 2;
+            time_seg1 = 34;
+            time_seg2 = 5;
+            data_prescaler = 1;
+            data_sync_jump_width = 2;
+            data_time_seg1 = 34;
+            data_time_seg2 = 5;
             break;
     }
     led_green_on();
