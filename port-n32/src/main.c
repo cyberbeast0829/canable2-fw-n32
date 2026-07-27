@@ -49,7 +49,7 @@ int main(void)
         cdc_process();
 
         // Check for received CAN messages
-        if (is_can_msg_pending(0))  // RX FIFO 0
+        if (is_can_msg_pending(FDCAN_RX_FIFO0))  // RX FIFO 0
         {
             // Read CAN frame
             if (can_rx(&rx_msg_header, rx_msg_data) == SUCCESS)

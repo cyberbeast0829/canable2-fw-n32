@@ -147,7 +147,7 @@ void can_init(void)
     can_handle.MsgRamOffset = 0;
     can_handle.pMsgInfo = &can_msg_ram;
 
-    // Filter and buffer sizes
+    // Filter: accept ALL frames via global filter (no per-ID filter needed)
     can_handle.StdFilterSize = 0;
     can_handle.ExtFilterSize = 0;
     can_handle.RxFifo0Size = 8;
@@ -186,6 +186,11 @@ void can_enable(void)
 
         // Initialize FDCAN
         FDCAN_Init(FDCAN1, &can_handle);
+
+        // Global filter: accept all standard+extended frames into RX FIFO0
+        FDCAN_ConfigGlobalFilter(FDCAN1,
+            FDCAN_ACCEPT_STD_IN_RX_FIFO0, FDCAN_ACCEPT_EXT_IN_RX_FIFO0,
+            FDCAN_FILTER_STD_REMOTE, FDCAN_FILTER_EXT_REMOTE);
 
         // Configure timestamp
         FDCAN_ConfigTSPrescaler(FDCAN1, FDCAN_TIMESTAMP_PRESC_16);
@@ -418,14 +423,13 @@ uint32_t can_tx(FDCAN_TxHeaderType *tx_msg_header, uint8_t *tx_msg_data)
 uint32_t can_rx(FDCAN_RxHeaderType *rx_msg_header, uint8_t *rx_msg_data)
 {
     // Read from Rx FIFO 0, index 0 (oldest message)
-    return FDCAN_GetRxMsg(FDCAN1, 0, rx_msg_header, rx_msg_data);
+    return FDCAN_GetRxMsg(FDCAN1, FDCAN_RX_FIFO0, rx_msg_header, rx_msg_data);
 }
 
 
 // Check if CAN message is pending in RX FIFO
 uint8_t is_can_msg_pending(uint8_t fifo)
 {
-    // FDCAN_RX_FIFO0 = 0, FDCAN_RX_FIFO1 = 1
     return (FDCAN_GetRxFifoFillLevel(FDCAN1, fifo) > 0);
 }
 
