@@ -99,6 +99,16 @@ int32_t slcan_parse_frame(uint8_t *buf, FDCAN_RxHeaderType *frame_header, uint8_
         buf[msg_idx++] = (frame_data[j] & 0x0F);
     }
 
+    // Convert to ASCII (2nd character to end)
+    for (uint8_t j = 1; j < msg_idx; j++)
+    {
+        if (buf[j] < 0xA) {
+            buf[j] += 0x30;
+        } else {
+            buf[j] += 0x37;
+        }
+    }
+
     // Add carriage return
     buf[msg_idx++] = '\r';
 
