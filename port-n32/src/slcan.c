@@ -333,27 +333,8 @@ static uint32_t __std_dlc_code_to_hal_dlc_code(uint8_t dlc_code)
 }
 
 
-// Convert N32 HAL DLC code to standard DLC character
+// Convert N32 HAL DLC code to raw nibble value (0-15)
 static uint8_t __hal_dlc_code_to_std_dlc_code(uint32_t hal_dlc_code)
 {
-    switch (hal_dlc_code)
-    {
-        case FDCAN_DLC_BYTES_0:  return '0';
-        case FDCAN_DLC_BYTES_1:  return '1';
-        case FDCAN_DLC_BYTES_2:  return '2';
-        case FDCAN_DLC_BYTES_3:  return '3';
-        case FDCAN_DLC_BYTES_4:  return '4';
-        case FDCAN_DLC_BYTES_5:  return '5';
-        case FDCAN_DLC_BYTES_6:  return '6';
-        case FDCAN_DLC_BYTES_7:  return '7';
-        case FDCAN_DLC_BYTES_8:  return '8';
-        case FDCAN_DLC_BYTES_12: return '9';
-        case FDCAN_DLC_BYTES_16: return 'A';
-        case FDCAN_DLC_BYTES_20: return 'B';
-        case FDCAN_DLC_BYTES_24: return 'C';
-        case FDCAN_DLC_BYTES_32: return 'D';
-        case FDCAN_DLC_BYTES_48: return 'E';
-        case FDCAN_DLC_BYTES_64: return 'F';
-        default: return '8';
-    }
+    return hal_dlc_code >> 16;
 }
