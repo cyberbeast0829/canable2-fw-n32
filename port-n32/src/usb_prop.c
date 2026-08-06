@@ -119,11 +119,13 @@ void Virtual_Com_Port_Reset(void)
     USB_SetEpRxCnt(ENDP0, Device_Property.MaxPacketSize);
     USB_SetEpRxValid(ENDP0);
 
-    /* Initialize Endpoint 1 IN (Bulk — CDC data device->host) */
+    /* Initialize Endpoint 1 IN (Bulk — CDC data device->host)
+     * Set to NAK initially — only arm when cdc_process() has data to send.
+     * Setting EP_TX_VALID here would cause 64 bytes of garbage from the
+     * uninitialized PMA buffer to be sent on the first host IN token. */
     USB_SetEpType(ENDP1, EP_BULK);
     USB_SetEpTxAddr(ENDP1, ENDP1_TXADDR);
-    USB_SetEpTxCnt(ENDP1, Device_Property.MaxPacketSize);
-    SetEPTxStatus(ENDP1, EP_TX_VALID);
+    SetEPTxStatus(ENDP1, EP_TX_NAK);
 
     /* Initialize Endpoint 1 OUT (Bulk — CDC data host->device) */
     USB_SetEpType(ENDP1, EP_BULK);
