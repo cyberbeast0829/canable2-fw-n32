@@ -231,14 +231,9 @@ void can_set_data_bitrate(enum can_data_bitrate bitrate)
         case CAN_DATA_BITRATE_2M:
             data_prescaler = 1;
             data_sync_jump_width = 1;
-            data_time_seg1 = 14;
-            data_time_seg2 = 5; // 采样点：（1+14）/（1+14+5）≈ 0.75
-            break;              // Actually 40M/5=8M, 8M/17≈470k
-                                // Let's recalibrate: for 2M with 40M clock:
-                                // 40M / 2M = 20 tq total needed
-                                // If TimeSeg1=14, TimeSeg2=2: total=17
-                                // Prescaler = 40M / (2M * 17) = 40/34 ≈ 1.18 → use 1
-                                // 40M / (1*17) ≈ 2.35M (close enough for CAN FD)
+            data_time_seg1 = 15;
+            data_time_seg2 = 4; // 采样点：（1+15）/（1+15+4）≈ 0.8
+            break;
         case CAN_DATA_BITRATE_5M:
         default:
             data_prescaler = 1;
@@ -261,103 +256,63 @@ void can_set_bitrate(enum can_bitrate bitrate)
         case CAN_BITRATE_10K: // 40M / (100*(34+5+1)) ≈ 10k
             prescaler = 100;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5; // 采样点：（1+34）/（1+34+5）≈ 0.875
-            data_prescaler = 100;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8; // 采样点：（1+31）/（1+31+8）≈ 0.8
             break;
         case CAN_BITRATE_20K:
             prescaler = 50;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 50;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_50K:
             prescaler = 20;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 20;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_83_3K:
             prescaler = 12;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 12;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_100K:
             prescaler = 10;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 10;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_125K:
             prescaler = 8;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 19;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_250K:
             prescaler = 4;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 9;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_500K:
             prescaler = 2;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 5;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
         case CAN_BITRATE_750K:
-            prescaler = 2; // 40M / (2*(22+4+1)) ≈ 740.7k
+            prescaler = 2; // 40M / (2*(22+5+1)) ≈ 740.7k
             sync_jump_width = 2;
-            time_seg1 = 22;
-            time_seg2 = 4;
-            data_prescaler = 2;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 22;
-            data_time_seg2 = 4;
+            time_seg1 = 21;
+            time_seg2 = 5;
             break;
         case CAN_BITRATE_1000K:
         default:
             prescaler = 1;
             sync_jump_width = 2;
-            time_seg1 = 34;
-            time_seg2 = 5;
-            data_prescaler = 1;
-            data_sync_jump_width = 2;
-            data_time_seg1 = 34;
-            data_time_seg2 = 5;
+            time_seg1 = 31;
+            time_seg2 = 8;
             break;
     }
     led_green_on();
