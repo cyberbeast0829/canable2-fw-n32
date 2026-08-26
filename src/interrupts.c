@@ -1,56 +1,53 @@
-//
-// interrupts: handle global system interrupts
-//
+/**
+ * @file    interrupts.c
+ * @brief   Interrupt Service Routines for CANable2-N32
+ */
 
-#include "stm32g4xx_hal.h"
+#include "n32h47x_48x.h"
+#include "n32h47x_48x_conf.h"
 #include "interrupts.h"
-#include "can.h"
 #include "led.h"
 
+// N32 USB interrupt service routine (application-level, defined in usb_istr.c)
+extern void USB_Istr(void);
 
-// Externs
-extern PCD_HandleTypeDef hpcd_USB_FS;
 
+// System exception handlers
 
 void NMI_Handler(void)
 {
+    while (1);
 }
 
 void HardFault_Handler(void)
 {
-  while (1)
-  {
-  }
+    while (1)
+    {
+        // Fault indicator
+    }
 }
 
 void MemManage_Handler(void)
 {
-  while (1)
-  {
-  }
+    while (1);
 }
 
 void BusFault_Handler(void)
 {
-  while (1)
-  {
-  }
+    while (1);
 }
-
 
 void UsageFault_Handler(void)
 {
-  while (1)
-  {
-  }
+    while (1);
 }
 
 void SVC_Handler(void)
 {
 }
+
 void DebugMon_Handler(void)
 {
-
 }
 
 void PendSV_Handler(void)
@@ -58,28 +55,19 @@ void PendSV_Handler(void)
 }
 
 
-// Handle USB interrupts
-void USB_LP_IRQHandler(void)
+// USB Full-Speed Low Priority interrupt
+void USB_FS_LP_IRQHandler(void)
 {
-  HAL_PCD_IRQHandler(&hpcd_USB_FS);
-}
-// Handle USB interrupts
-void USB_HP_IRQHandler(void)
-{
-  HAL_PCD_IRQHandler(&hpcd_USB_FS);
+    USB_Istr();
 }
 
 
-// Handle SysTick interrupt
-void SysTick_Handler(void)
+// USB Full-Speed Wakeup interrupt
+void USB_FS_WKUP_IRQHandler(void)
 {
-    HAL_IncTick();
-    HAL_SYSTICK_IRQHandler();
+    // Handle USB wakeup from suspend via EXTI Line 18
+    if (EXTI_GetITStatus(EXTI_LINE18) != RESET)
+    {
+        EXTI_ClrITPendBit(EXTI_LINE18);
+    }
 }
-
-
-//// Handle CAN interrupts
-//void CEC_CAN_IRQHandler(void)
-//{
-//    HAL_CAN_IRQHandler(can_gethandle());
-//}

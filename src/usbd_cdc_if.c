@@ -1,3 +1,17 @@
+/**
+ * @file    usbd_cdc_if.c
+ * @brief   USB CDC interface implementation for N32H473
+ * 
+ * Implements a simple USB CDC ACM device for the CANable2.
+ * Data flow:
+ *   Host → USB OUT EP1 → rx_buffer → cdc_process() → SLCAN parser → CAN TX
+ *   CAN RX → SLCAN frame → cdc_transmit() → tx_buffer → USB IN EP2 → Host
+ */
+
+#include "n32h47x_48x.h"
+#include "n32h47x_48x_conf.h"
+#include "usbfsd_lib.h"
+#include "usb_conf.h"
 #include "usbd_cdc_if.h"
 #include "slcan.h"
 #include "system.h"
@@ -6,266 +20,188 @@
 // Private variables
 static usbrx_buf_t rxbuf = {0};
 static usbtx_buf_t txbuf = {0};
-static uint8_t tx_linbuf[TX_LINBUF_SIZE] = {0};
-static uint8_t slcan_str[SLCAN_MTU];
-static uint8_t slcan_str_index = 0;
+static uint8_t rx_packet_buf[CDC_DATA_FS_MAX_PACKET_SIZE];
+static volatile uint8_t tx_active = 0;
 
 
-// Externs
-extern USBD_HandleTypeDef hUsbDeviceFS;
-
-
-// Private prototypes
-static int8_t CDC_Init_FS(void);
-static int8_t CDC_DeInit_FS(void);
-static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length);
-static int8_t CDC_Receive_FS(uint8_t* pbuf, uint32_t *Len);
-void cdc_process(void);
-
-
-USBD_CDC_ItfTypeDef USBD_Interface_fops_FS =
+// Called by EP1_IN_Callback when TX completes
+void cdc_tx_done(void)
 {
-  CDC_Init_FS,
-  CDC_DeInit_FS,
-  CDC_Control_FS,
-  CDC_Receive_FS
-};
-
-
-// Initializes the CDC media low layer over the FS USB IP
-static int8_t CDC_Init_FS(void)
-{
-	rxbuf.head = 0;
-	rxbuf.tail = 0;
-	txbuf.head = 0;
-	txbuf.tail = 0;
-
-	USBD_CDC_SetTxBuffer(&hUsbDeviceFS, tx_linbuf, 0);
-	USBD_CDC_SetRxBuffer(&hUsbDeviceFS, rxbuf.buf[rxbuf.head]);
-	return (USBD_OK);
+    tx_active = 0;
 }
 
 
-// DeInitializes the CDC media low layer
-static int8_t CDC_DeInit_FS(void)
+// Forward declarations
+void USB_ProcessNop(void);
+
+
+// USB device initialization
+void usb_init(void)
 {
-	return (USBD_OK);
-}
+    NVIC_InitType nvic;
+    EXTI_InitType exti;
+    GPIO_InitType gpio;
 
-/**
-  * @brief  Manage the CDC class requests
-  * @param  cmd: Command code
-  * @param  pbuf: Buffer containing command data (request parameters)
-  * @param  length: Number of data to be sent (in bytes)
-  * @retval Result of the operation: USBD_OK if all operations are OK else USBD_FAIL
-  */
-static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
-{
-  /* USER CODE BEGIN 5 */
-  switch(cmd)
-  {
-    case CDC_SEND_ENCAPSULATED_COMMAND:
+    // Configure USB clock: PLL output → /5 → 48MHz for USB FS
+    RCC_ConfigUSBFSClk(RCC_USBFS_CLKSRC_PLLPRES);
+    RCC_ConfigUSBPLLPresClk(RCC_USBPLLCLK_SRC_PLL, RCC_USBPLLCLK_DIV5);
+    RCC->CFG3 |= RCC_CFG3_USBFSTM;
 
-    break;
+    // Enable USB clock
+    RCC_EnableAPB1PeriphClk(RCC_APB1_PERIPH_USBFS, ENABLE);
 
-    case CDC_GET_ENCAPSULATED_RESPONSE:
+    // Enable AFIO and GPIO clocks
+    RCC_EnableAPB2PeriphClk(RCC_APB2_PERIPH_AFIO, ENABLE);
+    RCC_EnableAHB1PeriphClk(RCC_AHB_PERIPHEN_GPIOA, ENABLE);
 
-    break;
+    // Configure USB pins: PA11=DM, PA12=DP, AF10
+    GPIO_InitStruct(&gpio);
+    gpio.Pin = GPIO_PIN_11 | GPIO_PIN_12;
+    gpio.GPIO_Mode = GPIO_MODE_AF_PP;
+    gpio.GPIO_Alternate = GPIO_AF10;
+    gpio.GPIO_Pull = GPIO_NO_PULL;
+    gpio.GPIO_Slew_Rate = GPIO_SLEW_RATE_FAST;
+    gpio.GPIO_Current = GPIO_DC_12mA;
+    GPIO_InitPeripheral(GPIOA, &gpio);
 
-    case CDC_SET_COMM_FEATURE:
+    // Enable USB LP interrupt
+    nvic.NVIC_IRQChannel = USB_FS_LP_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 6;
+    nvic.NVIC_IRQChannelSubPriority = 0;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
 
-    break;
+    // Enable USB Wakeup interrupt
+    nvic.NVIC_IRQChannel = USB_FS_WKUP_IRQn;
+    nvic.NVIC_IRQChannelPreemptionPriority = 9;
+    nvic.NVIC_IRQChannelSubPriority = 0;
+    nvic.NVIC_IRQChannelCmd = ENABLE;
+    NVIC_Init(&nvic);
 
-    case CDC_GET_COMM_FEATURE:
+    // Configure EXTI line 18 for USB wakeup
+    EXTI_ClrITPendBit(EXTI_LINE18);
+    exti.EXTI_Line = EXTI_LINE18;
+    exti.EXTI_Mode = EXTI_Mode_Interrupt;
+    exti.EXTI_Trigger = EXTI_Trigger_Rising;
+    exti.EXTI_LineCmd = ENABLE;
+    EXTI_InitPeripheral(&exti);
 
-    break;
+    // Initialize RX/TX buffers
+    rxbuf.head = 0;
+    rxbuf.tail = 0;
+    txbuf.head = 0;
+    txbuf.tail = 0;
+    tx_active = 0;
 
-    case CDC_CLEAR_COMM_FEATURE:
+    // Initialize USB core
+    USB_Init();
 
-    break;
-
-  /*******************************************************************************/
-  /* Line Coding Structure                                                       */
-  /*-----------------------------------------------------------------------------*/
-  /* Offset | Field       | Size | Value  | Description                          */
-  /* 0      | dwDTERate   |   4  | Number |Data terminal rate, in bits per second*/
-  /* 4      | bCharFormat |   1  | Number | Stop bits                            */
-  /*                                        0 - 1 Stop bit                       */
-  /*                                        1 - 1.5 Stop bits                    */
-  /*                                        2 - 2 Stop bits                      */
-  /* 5      | bParityType |  1   | Number | Parity                               */
-  /*                                        0 - None                             */
-  /*                                        1 - Odd                              */
-  /*                                        2 - Even                             */
-  /*                                        3 - Mark                             */
-  /*                                        4 - Space                            */
-  /* 6      | bDataBits  |   1   | Number Data bits (5, 6, 7, 8 or 16).          */
-  /*******************************************************************************/
-    case CDC_SET_LINE_CODING:
-
-    break;
-
-    case CDC_GET_LINE_CODING:
-        pbuf[0] = (uint8_t)(115200);
-	pbuf[1] = (uint8_t)(115200 >> 8);
-	pbuf[2] = (uint8_t)(115200 >> 16);
-	pbuf[3] = (uint8_t)(115200 >> 24);
-	pbuf[4] = 0; // stop bits (1)
-	pbuf[5] = 0; // parity (none)
-	pbuf[6] = 8; // number of bits (8)
-        break;
-
-    case CDC_SET_CONTROL_LINE_STATE:
-
-    break;
-
-    case CDC_SEND_BREAK:
-
-    break;
-
-  default:
-    break;
-  }
-
-  return (USBD_OK);
-  /* USER CODE END 5 */
-}
-
-/**
-  * @brief  Data received over USB OUT endpoint are sent over CDC interface
-  *         through this function.
-  *
-  *         @note
-  *         This function will block any OUT packet reception on USB endpoint
-  *         untill exiting this function. If you exit this function before transfer
-  *         is complete on CDC interface (ie. using DMA controller) it will result
-  *         in receiving more data while previous ones are still not sent.
-  *
-  * @param  Buf: Buffer of data to be received
-  * @param  Len: Number of data received (in bytes)
-  * @retval Result of the operation: USBD_OK if all operations are OK else USBD_FAIL
-  */
-
-
-static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
-{
-	// Check for overflow!
-	// If when we increment the head we're going to hit the tail
-	// (if we're filling the last spot in the queue)
-	// FIXME: Use a "full" variable instead of wasting one
-	// spot in the cirbuf as we are doing now
-	if( ((rxbuf.head + 1) % NUM_RX_BUFS) == rxbuf.tail)
-	{
-		error_assert(ERR_FULLBUF_USBRX);
-
-		// Listen again on the same buffer. Old data will be overwritten.
-	    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, rxbuf.buf[rxbuf.head]);
-	    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-		return HAL_ERROR;
-	}
-	else
-	{
-		// Save off length
-		rxbuf.msglen[rxbuf.head] = *Len;
-		rxbuf.head = (rxbuf.head + 1) % NUM_RX_BUFS;
-
-		// Start listening on next buffer. Previous buffer will be processed in main loop.
-	    USBD_CDC_SetRxBuffer(&hUsbDeviceFS, rxbuf.buf[rxbuf.head]);
-	    USBD_CDC_ReceivePacket(&hUsbDeviceFS);
-	    return (USBD_OK);
-	}
+    // Prepare first RX on EP1 OUT (endpoint address = 0x01 for EP1 OUT)
+    // The N32 USB library reads directly from PMA in the OUT callback
 }
 
 
-// Process incoming and outgoing USB-CDC data
+// CDC process: check for received data and process TX
 void cdc_process(void)
 {
-	// Process transmit buffer
-    USBD_CDC_HandleTypeDef *hcdc = (USBD_CDC_HandleTypeDef*)hUsbDeviceFS.pClassData;
-    if(hcdc->TxState == 0)
+    // Process received data from USB
+    while (rxbuf.tail != rxbuf.head)
     {
-    	uint16_t linbuf_ctr = 0;
-    	while(txbuf.tail != txbuf.head)
-    	{
-    		tx_linbuf[linbuf_ctr++] = txbuf.data[txbuf.tail];
-    		txbuf.tail = (txbuf.tail + 1UL) % USBTXQUEUE_LEN;
+        uint8_t *msg = rxbuf.buf[rxbuf.tail];
+        uint32_t len = rxbuf.msglen[rxbuf.tail];
 
-    		// Take up to the number of bytes to fill the linbuf
-    		if(linbuf_ctr >= TX_LINBUF_SIZE)
-    			break;
-    	}
+        // Feed each byte through SLCAN parser (character by character)
+        extern uint8_t slcan_str[];
+        extern uint8_t slcan_str_index;
 
-    	if(linbuf_ctr > 0)
-    	{
-			// Set transmit buffer and start TX
-			USBD_CDC_SetTxBuffer(&hUsbDeviceFS, tx_linbuf, linbuf_ctr);
-			USBD_CDC_TransmitPacket(&hUsbDeviceFS);
-    	}
+        for (uint32_t i = 0; i < len; i++)
+        {
+            if (msg[i] == '\r' || msg[i] == '\n')
+            {
+                if (slcan_str_index > 0)
+                {
+                    slcan_parse_str(slcan_str, slcan_str_index);
+                    slcan_str_index = 0;
+                }
+            }
+            else if (slcan_str_index < SLCAN_MTU - 1)
+            {
+                slcan_str[slcan_str_index++] = msg[i];
+            }
+        }
+
+        rxbuf.tail = (rxbuf.tail + 1) % NUM_RX_BUFS;
     }
 
-	// Process receive buffer
-    system_irq_disable();
-	if(rxbuf.tail != rxbuf.head)
-	{
-		//  Process one whole buffer
-		for (uint32_t i = 0; i < rxbuf.msglen[rxbuf.tail]; i++)
-		{
-		   if (rxbuf.buf[rxbuf.tail][i] == '\r')
-		   {
-			   //int8_t result =
-			   slcan_parse_str(slcan_str, slcan_str_index);
+    // Process TX buffer - send data to USB if not busy
+    if (!tx_active && txbuf.tail != txbuf.head)
+    {
+        uint32_t available;
+        if (txbuf.head > txbuf.tail)
+            available = txbuf.head - txbuf.tail;
+        else
+            available = USBTXQUEUE_LEN - txbuf.tail;
 
-			   // Success
-			   //if(result == 0)
-			   //    CDC_Transmit_FS("\n", 1);
-			   // Failure
-			   //else
-			   //    CDC_Transmit_FS("\a", 1);
+        if (available > CDC_DATA_FS_MAX_PACKET_SIZE)
+            available = CDC_DATA_FS_MAX_PACKET_SIZE;
 
-			   slcan_str_index = 0;
-		   }
-		   else
-		   {
-			   // Check for overflow of buffer
-			   if(slcan_str_index >= SLCAN_MTU)
-			   {
-				   // TODO: Return here and discard this CDC buffer?
-				   slcan_str_index = 0;
-			   }
-
-			   slcan_str[slcan_str_index++] = rxbuf.buf[rxbuf.tail][i];
-		   }
-		}
-
-		// Move on to next buffer
-		rxbuf.tail = (rxbuf.tail + 1) % NUM_RX_BUFS;
-	}
-    system_irq_enable();
-
+        if (available > 0)
+        {
+            // Use ODrive pattern: CopyUserToPMABuf + SetEpTxCnt + SetEpTxValid
+            USB_CopyUserToPMABuf(&txbuf.data[txbuf.tail], ENDP1_TXADDR, available);
+            USB_SetEpTxCnt(ENDP1, available);
+            USB_SetEpTxValid(ENDP1);       // arm endpoint for transmission
+            txbuf.tail = (txbuf.tail + available) % USBTXQUEUE_LEN;
+            tx_active = 1;
+        }
+    }
 }
 
 
-// Enqueue data for transmission over USB CDC to host
-void cdc_transmit(uint8_t* buf, uint16_t len)
+// CDC transmit: queue data for sending via USB
+void cdc_transmit(uint8_t *buf, uint16_t len)
 {
-	system_irq_disable();
-	if( ((txbuf.head + len) % USBTXQUEUE_LEN) == txbuf.tail)
-	{
-		error_assert(ERR_FULLBUF_USBTX);
-    	return;
+    for (uint16_t i = 0; i < len; i++)
+    {
+        uint32_t next_head = (txbuf.head + 1) % USBTXQUEUE_LEN;
+        if (next_head == txbuf.tail)
+        {
+            error_assert(ERR_FULLBUF_USBTX);
+            break;
+        }
+        txbuf.data[txbuf.head] = buf[i];
+        txbuf.head = next_head;
     }
-	else
-	{
-		// Copy data
-	    for (uint32_t i=0; i < len; i++)
-	    {
-	    	txbuf.data[txbuf.head] = buf[i];
-
-		    // Increment the head
-			txbuf.head = (txbuf.head + 1UL) % USBTXQUEUE_LEN;
-	    }
-
-	}
-    system_irq_enable();
 }
+
+
+// EP1 OUT callback - called when USB host sends data to us
+void CDC_EP1_OUT_Callback(void)
+{
+    // Read received data from USB PMA using SIL layer
+    // EP1 OUT: endpoint address = 0x01
+    uint32_t len = USB_SilRead(0x01, rx_packet_buf);
+
+    if (len > 0 && len <= CDC_DATA_FS_MAX_PACKET_SIZE)
+    {
+        uint32_t next_head = (rxbuf.head + 1) % NUM_RX_BUFS;
+        if (next_head != rxbuf.tail)
+        {
+            for (uint32_t i = 0; i < len && i < RX_BUF_SIZE; i++)
+            {
+                rxbuf.buf[rxbuf.head][i] = rx_packet_buf[i];
+            }
+            rxbuf.msglen[rxbuf.head] = len;
+            rxbuf.head = next_head;
+        }
+        else
+        {
+            error_assert(ERR_FULLBUF_USBRX);
+        }
+    }
+
+    // Re-arm EP1 OUT to receive next packet
+    SetEPRxStatus(ENDP1, EP_RX_VALID);
+}
+
 

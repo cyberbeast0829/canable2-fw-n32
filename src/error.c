@@ -1,66 +1,56 @@
-//
-// Error: handling / reporting of system errors
-//
+/**
+ * @file    error.c
+ * @brief   Error tracking implementation
+ */
 
-#include "stm32g4xx_hal.h"
+#include "n32h47x_48x.h"
+#include "n32h47x_48x_conf.h"
 #include "error.h"
+#include "system.h"
 
 
-// Private variables
-static uint32_t err_reg = 0;
-static uint32_t err_time[ERR_MAX] = {0};
-static uint32_t err_last_time = 0;
+// Error tracking storage
+static uint32_t error_register = 0;
+static uint32_t error_timestamps[ERR_MAX] = {0};
 
 
-// Assert an error: sets err register bit and records timestamp
+// Assert an error condition
 void error_assert(error_t err)
 {
-    // Return on invalid error
-	if(err >= ERR_MAX)
-		return;
-
-    // Record time at which error was reported
-	err_time[err] = HAL_GetTick();
-    
-    // Record time of latest error that occurred
-    err_last_time = HAL_GetTick(); 
-    
-    // Set error bit in register
-	err_reg |= (1 << err);
+    error_register |= (1 << err);
+    error_timestamps[err] = system_get_ticks();
 }
 
 
-// Get the systick at which an error last occurred, or 0 otherwise
+// Get timestamp of a specific error
 uint32_t error_timestamp(error_t err)
 {
-    // Return on invalid error
-	if(err >= ERR_MAX)
-		return 0;
-
-	return err_time[err];
+    return error_timestamps[err];
 }
 
 
-// Return timestamp of last asserted error or 0 if none asserted
+// Get timestamp of the most recent error
 uint32_t error_last_timestamp(void)
 {
-    return err_last_time;
+    uint32_t latest = 0;
+    for (uint8_t i = 0; i < ERR_MAX; i++)
+    {
+        if (error_timestamps[i] > latest)
+            latest = error_timestamps[i];
+    }
+    return latest;
 }
 
 
-// Returns 1 if the error has occurred since boot
+// Check if a specific error has occurred
 uint8_t error_occurred(error_t err)
 {
-    // Return on invalid error    
-	if(err >= ERR_MAX)
-		return 0;
-
-	return (err_reg & (1 << err)) > 0;
+    return (error_register & (1 << err)) ? 1 : 0;
 }
 
 
-// Return value of error register
+// Get the full error register
 uint32_t error_reg(void)
 {
-	return err_reg;
+    return error_register;
 }

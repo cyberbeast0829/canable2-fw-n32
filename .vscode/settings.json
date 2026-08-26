@@ -1,7 +1,0 @@
-{
-    "files.exclude": {
-        "**/.git": true,
-        "port-n32/build/N32HAL": true,
-        "port-n32/build/usb": true
-    }
-}
