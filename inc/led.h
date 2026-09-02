@@ -9,12 +9,12 @@
 #include <stdint.h>
 
 // GPIO definitions for N32H473 (adjust pins to match your hardware)
-#define LED_BLUE_Pin    GPIO_PIN_15
+#define LED_BLUE_Pin    GPIO_PIN_0
 #define LED_BLUE_Port   GPIOA
 #define LED_BLUE        LED_BLUE_Port, LED_BLUE_Pin
 
-#define LED_GREEN_Pin   GPIO_PIN_11
-#define LED_GREEN_Port  GPIOB
+#define LED_GREEN_Pin   GPIO_PIN_0
+#define LED_GREEN_Port  GPIOA
 #define LED_GREEN       LED_GREEN_Port, LED_GREEN_Pin
 
 // Duration of LED blink (ms)

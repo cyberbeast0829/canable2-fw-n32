@@ -29,21 +29,21 @@ void led_init(void)
     GPIO_InitType gpio;
     GPIO_InitStruct(&gpio);
 
-    // Blue LED on PA15
+    // Blue LED on PA0
     gpio.Pin = LED_BLUE_Pin;
     gpio.GPIO_Mode = GPIO_MODE_OUTPUT_PP;
-    gpio.GPIO_Pull = GPIO_PULL_UP;
+    gpio.GPIO_Pull = GPIO_PULL_DOWN;
     gpio.GPIO_Slew_Rate = GPIO_SLEW_RATE_SLOW;
     gpio.GPIO_Current = GPIO_DC_2mA;
     gpio.GPIO_Alternate = 0;
     GPIO_InitPeripheral(LED_BLUE_Port, &gpio);
 
-    // Green LED on PB11
+    // Green LED on PA0
     gpio.Pin = LED_GREEN_Pin;
     GPIO_InitPeripheral(LED_GREEN_Port, &gpio);
 
-    // Start with green LED off (active low with pull-up)
-    GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
+    // Start with green LED off (active low with pull-down)
+    GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
 }
 
 
@@ -52,7 +52,7 @@ void led_green_on(void)
 {
     if (led_green_laston == 0 && (HAL_GetTick() - led_green_lastoff) > LED_DURATION)
     {
-        GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
+        GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
         led_green_laston = HAL_GetTick();
     }
 }
@@ -61,7 +61,7 @@ void led_green_on(void)
 // Turn green LED off
 void led_green_off(void)
 {
-    GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
+    GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
 }
 
 
@@ -70,9 +70,9 @@ void led_blue_blink(uint8_t numblinks)
 {
     for (uint8_t i = 0; i < numblinks; i++)
     {
-        GPIO_WriteBits(LED_BLUE_Port, LED_BLUE_Pin, Bit_SET);
-        HAL_Delay(100);
         GPIO_WriteBits(LED_BLUE_Port, LED_BLUE_Pin, Bit_RESET);
+        HAL_Delay(100);
+        GPIO_WriteBits(LED_BLUE_Port, LED_BLUE_Pin, Bit_SET);
         HAL_Delay(100);
     }
 }
@@ -95,7 +95,7 @@ void led_process(void)
     // Turn off green LED if it's been on for LED_DURATION
     if (led_green_laston > 0 && (HAL_GetTick() - led_green_laston) > LED_DURATION)
     {
-        GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
+        GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
         led_green_laston = 0;
         led_green_lastoff = HAL_GetTick();
     }
@@ -119,12 +119,12 @@ void led_process(void)
 
             if (error_blink_status)
             {
-                GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
+                GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
                 GPIO_WriteBits(LED_BLUE_Port, LED_BLUE_Pin, Bit_SET);
             }
             else
             {
-                GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
+                GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
                 GPIO_WriteBits(LED_BLUE_Port, LED_BLUE_Pin, Bit_RESET);
             }
         }
@@ -132,7 +132,7 @@ void led_process(void)
     else if (error_was_indicating)
     {
         error_was_indicating = 0;
-        GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_SET);
+        GPIO_WriteBits(LED_GREEN_Port, LED_GREEN_Pin, Bit_RESET);
         GPIO_WriteBits(LED_BLUE_Port, LED_BLUE_Pin, Bit_RESET);
     }
 }
