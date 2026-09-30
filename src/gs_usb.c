@@ -110,11 +110,18 @@ static volatile uint16_t gs_tx_tail = 0;   /* consumer (USB IN) */
 static volatile uint8_t  gs_tx_active = 0; /* EP1 IN transfer in flight */
 
 /* ---- RX staging: reassembles host frames arriving on EP2 OUT ----
- * A classic frame is a single 20-byte packet. A CAN-FD frame is 76 bytes,
- * which the FS endpoint delivers as two packets (64 + 12), so we must
- * accumulate across packets before handing the frame to the CAN controller. */
+ *
+ * The host always sends whole gs_host_frames of ONE fixed size for the
+ * current channel mode (set at open via GS_USB_BREQ_MODE):
+ *   - classic mode (no FD):  20 bytes  (12 header + 8 data)  -> one packet
+ *   - CAN-FD mode (fd on):   76 bytes  (12 header + 64 data) -> two packets
+ *
+ * NOTE: in CAN-FD mode the host sends 76 bytes EVEN FOR CLASSIC FRAMES
+ * (hf_size_tx is fixed per mode). So the reassembly length must follow the
+ * channel mode, NOT the per-frame GS_CAN_FLAG_FD bit. */
 static struct gs_host_frame gs_rx_frame __attribute__((aligned(4)));
-static uint32_t gs_rx_fill = 0;   /* bytes accumulated so far */
+static uint32_t gs_rx_fill = 0;          /* bytes accumulated so far */
+static uint32_t gs_rx_frame_len = 20;    /* current host frame size (per mode) */
 
 /* ==========================================================================
  *  DLC / length conversion helpers
@@ -228,6 +235,8 @@ void gs_usb_reset(void)
     gs_tx_tail     = 0;
     gs_tx_active   = 0;
     gs_tx_offset   = 0;
+    gs_rx_fill     = 0;
+    gs_rx_frame_len = GS_FRAME_LEN_CLASSIC;
     gs_timestamp_us = 0;
 
     can_disable();
@@ -281,8 +290,10 @@ void gs_usb_ep_in_cb(void)
 /*
  * Called from usb_endp.c for each USB packet arriving on EP2 OUT.
  *
- * Host -> Device direction. Reassembles the gs_host_frame (classic = 20 B in
- * one packet; CAN-FD = 76 B as 64 + 12) and queues it on the CAN controller.
+ * Host -> Device direction. The host sends whole gs_host_frames whose size is
+ * fixed by the channel mode: 20 bytes (classic mode, one packet) or 76 bytes
+ * (CAN-FD mode, arriving as 64 + 12 packets). We accumulate until a full frame
+ * is available, then convert it to a FDCAN TX header and queue it for the bus.
  */
 void gs_usb_ep_out_packet(const uint8_t *data, uint32_t len)
 {
@@ -295,22 +306,9 @@ void gs_usb_ep_out_packet(const uint8_t *data, uint32_t len)
     memcpy((uint8_t *)&gs_rx_frame + gs_rx_fill, data, len);
     gs_rx_fill += len;
 
-    /*
-     * Frame is complete when:
-     *  - the header is present and the frame is classic (short packet, 20 B), or
-     *  - a full FD frame (76 B) has been assembled.
-     */
-    uint32_t expect;
-    if (gs_rx_fill < GS_FRAME_HEADER_SIZE)
-        return;   /* need more data to know the type */
-
-    if (gs_rx_frame.flags & GS_CAN_FLAG_FD)
-        expect = GS_FRAME_LEN_FD;
-    else
-        expect = GS_FRAME_LEN_CLASSIC;
-
-    if (gs_rx_fill < expect)
-        return;   /* wait for the remaining packets */
+    /* Wait until a whole host frame (sized by the channel mode) has arrived. */
+    if (gs_rx_fill < gs_rx_frame_len)
+        return;
 
     /* Full frame available: dispatch to the CAN controller. */
     struct gs_host_frame *f = &gs_rx_frame;
@@ -344,7 +342,19 @@ void gs_usb_ep_out_packet(const uint8_t *data, uint32_t len)
     hdr.TxEventFifo = FDCAN_NO_TX_EVENTS;
     hdr.MsgMarker   = 0;
 
-    can_tx(&hdr, f->canfd.data);
+    if (can_tx(&hdr, f->canfd.data) == 0) {   /* can_tx: 0 = OK, 1 = error */
+        /*
+         * TX confirmation (echo): gs_usb requires the device to send the
+         * frame back to the host with its original echo_id once accepted.
+         * The Linux driver uses this to release the TX context and bump
+         * tx_packets; without it the host TX queue fills up (ENOBUFS).
+         *
+         * We echo on successful enqueue. f->echo_id is preserved from the
+         * host frame (only RX frames carry GS_HOST_FRAME_ECHO_ID_RX).
+         */
+        if (gs_tx_push(f))
+            gs_usb_kick_tx();
+    }
 
     /* Prepare for the next frame. */
     gs_rx_fill = 0;
@@ -513,6 +523,15 @@ void gs_usb_apply_control(uint8_t bRequest, const uint8_t *payload)
                 gs_feature = 0;
             } else if (m->mode == GS_CAN_MODE_START) {
                 gs_feature = m->feature;
+                /*
+                 * The host frame size on EP2 OUT is fixed by the channel
+                 * mode: 76 bytes in CAN-FD mode, 20 bytes otherwise. All
+                 * frames (classic and FD) use this size while the mode is
+                 * active, so the reassembler must track it.
+                 */
+                gs_rx_frame_len = (m->feature & GS_CAN_FEATURE_FD)
+                                ? GS_FRAME_LEN_FD : GS_FRAME_LEN_CLASSIC;
+                gs_rx_fill      = 0;
                 /* Silent (listen-only) mode */
                 can_set_silent((m->feature & GS_CAN_FEATURE_LISTEN_ONLY) ? 1 : 0);
                 can_enable();
