@@ -24,8 +24,12 @@
 /* Endpoint max packet size (USB FS bulk = 64) */
 #define CAN_DATA_MAX_PACKET_SIZE 64
 
-/* Full gs_host_frame size with CAN-FD data + timestamp (FD mode) */
-#define GS_HOST_FRAME_SIZE      84      /* 20 header + 64 data + 4 timestamp */
+/* gs_host_frame header size (echo_id, can_id, dlc, channel, flags, reserved) */
+#define GS_FRAME_HEADER_SIZE    12
+
+/* Largest gs_host_frame we model: header + 64 FD data + 4 timestamp = 80.
+ * (Classic frames are 20 bytes; FD frames are 76 bytes without timestamp.) */
+#define GS_HOST_FRAME_SIZE      (GS_FRAME_HEADER_SIZE + 64 + 4)
 
 /* ==========================================================================
  *  Feature bits (gs_device_bt_const.feature / gs_device_mode.feature)
@@ -249,7 +253,11 @@ void gs_usb_send_can_rx(const FDCAN_RxHeaderType *rx_header, const uint8_t *data
 
 /* Endpoint completion callbacks (wired up in usb_endp.c). */
 void gs_usb_ep_in_cb(void);                       /* EP1 IN bulk TX complete */
-void gs_usb_ep_out_cb(uint32_t len);              /* EP2 OUT bulk RX ready  */
+
+/* Called by usb_endp.c when one USB packet arrives on EP2 OUT. The protocol
+ * layer reassembles multi-packet CAN-FD frames (76 bytes = 64 + 12) before
+ * dispatching to the CAN controller. */
+void gs_usb_ep_out_packet(const uint8_t *data, uint32_t len);
 
 /* Vendor control-request dispatch (called from usb_prop.c).
  * Returns 1 if handled, 0 if unsupported. */
@@ -258,8 +266,5 @@ int  gs_usb_setup_request(uint8_t bRequest, uint16_t wValue, uint8_t **data,
 
 /* Apply a host->device control payload previously received (usb_prop.c). */
 void gs_usb_apply_control(uint8_t bRequest, const uint8_t *payload);
-
-/* Access the OUT staging buffer for arming EP2 OUT (usb_prop.c / usb_endp.c). */
-struct gs_host_frame *gs_usb_rx_buffer(void);
 
 #endif /* __GS_USB_H */

@@ -24,22 +24,21 @@ void EP1_IN_Callback(void)
 
 
 /**
- * @brief  EP2 OUT callback — bulk OUT data arrived from the host.
- *         Copy it into the gs_usb RX staging buffer and let the protocol
- *         layer handle it; the layer re-arms the endpoint.
+ * @brief  EP2 OUT callback — one USB packet arrived from the host.
+ *         Hand the raw packet to the gs_usb layer (which reassembles
+ *         multi-packet CAN-FD frames) and re-arm the endpoint.
  */
 void EP2_OUT_Callback(void)
 {
-    uint32_t len = USB_SilRead(GSUSB_ENDPOINT_OUT,
-                               (uint8_t *)gs_usb_rx_buffer());
+    static uint8_t pkt[CAN_DATA_MAX_PACKET_SIZE];
+
+    uint32_t len = USB_SilRead(GSUSB_ENDPOINT_OUT, pkt);
 
     if (len > 0 && len <= CAN_DATA_MAX_PACKET_SIZE)
     {
-        gs_usb_ep_out_cb(len);
+        gs_usb_ep_out_packet(pkt, len);
     }
-    else
-    {
-        /* Malformed/oversized: just re-arm. */
-        SetEPRxStatus(ENDP2, EP_RX_VALID);
-    }
+
+    /* Re-arm EP2 OUT for the next packet. */
+    SetEPRxStatus(ENDP2, EP_RX_VALID);
 }

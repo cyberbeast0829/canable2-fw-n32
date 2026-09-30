@@ -11,7 +11,7 @@
  *   control: gs_device_bittiming -> can_set_bitrate / can_set_data_bitrate
  *            GS_CAN_MODE_START / RESET -> can_enable / can_disable
  *   RX path: can_rx() -> gs_usb_send_frame() -> EP1 IN
- *   TX path: EP2 OUT -> gs_usb_ep_out_cb() -> can_tx()
+ *   TX path: EP2 OUT -> gs_usb_ep_out_packet() -> can_tx()
  */
 
 #include "n32h47x_48x.h"
@@ -109,8 +109,12 @@ static volatile uint16_t gs_tx_head = 0;   /* producer (CAN rx / echo) */
 static volatile uint16_t gs_tx_tail = 0;   /* consumer (USB IN) */
 static volatile uint8_t  gs_tx_active = 0; /* EP1 IN transfer in flight */
 
-/* ---- RX staging: one frame received from host on EP2 OUT ---- */
+/* ---- RX staging: reassembles host frames arriving on EP2 OUT ----
+ * A classic frame is a single 20-byte packet. A CAN-FD frame is 76 bytes,
+ * which the FS endpoint delivers as two packets (64 + 12), so we must
+ * accumulate across packets before handing the frame to the CAN controller. */
 static struct gs_host_frame gs_rx_frame __attribute__((aligned(4)));
+static uint32_t gs_rx_fill = 0;   /* bytes accumulated so far */
 
 /* ==========================================================================
  *  DLC / length conversion helpers
@@ -154,26 +158,25 @@ static inline uint8_t gs_tx_empty(void)
 /*
  * Length (bytes) of the gs_host_frame currently at the TX tail.
  *
- * IMPORTANT — two wire layouts exist:
+ * The gs_usb frame header is 12 bytes:
+ *     u32 echo_id; u32 can_id; u8 dlc; u8 ch; u8 flags; u8 reserved;
+ * followed by the payload union (flexible array, data starts at offset 12).
  *
- *  (a) Classic (in-tree linux <= 5.15 gs_usb, NO CAN-FD):
- *        struct gs_host_frame { u32 echo_id; u32 can_id;
- *                               u8 dlc, ch, flags, rsvd; u8 data[8]; };
- *      => total size = 20 bytes, with 8 data bytes INLINE at offset 12.
+ * Linux gs_usb sizes RX/TX URBs from the payload type:
+ *   classic_can  = u8 data[8]   -> total 12 + 8  = 20 bytes  (fixed)
+ *   canfd        = u8 data[64]  -> total 12 + 64 = 76 bytes  (fixed)
  *
- *  (b) CAN-FD (newer gs_usb with GS_CAN_FEATURE_FD):
- *        same 20-byte header, but the payload is a flexible array AFTER it,
- *      => total = 20 + {0..8,12,...,64}.
- *
- * The host only ever requests one of the two. A non-FD host (this 5.15
- * kernel) submits 20-byte RX URBs and rejects anything larger with
- * -EOVERFLOW. So for classic frames we must send EXACTLY 20 bytes.
+ * So the frame length is FIXED per frame type, NOT 12 + actual dlc bytes.
+ * (Extra trailing bytes are harmless; a too-short frame truncates data.)
  */
+#define GS_FRAME_LEN_CLASSIC   20u   /* 12 header + 8  data */
+#define GS_FRAME_LEN_FD        76u   /* 12 header + 64 data */
+
 static uint32_t gs_tx_frame_len(const struct gs_host_frame *f)
 {
     if (f->flags & GS_CAN_FLAG_FD)
-        return 20 + gs_dlc_to_bytes(f->can_dlc);   /* layout (b) */
-    return 20;                                     /* layout (a) */
+        return GS_FRAME_LEN_FD;
+    return GS_FRAME_LEN_CLASSIC;
 }
 
 /*
@@ -276,16 +279,40 @@ void gs_usb_ep_in_cb(void)
 }
 
 /*
- * Called from EP2 OUT callback after a host frame was copied to gs_rx_frame.
+ * Called from usb_endp.c for each USB packet arriving on EP2 OUT.
  *
- * Host -> Device direction: convert the gs_host_frame into a N32 FDCAN TX
- * header and queue it on the CAN controller.
+ * Host -> Device direction. Reassembles the gs_host_frame (classic = 20 B in
+ * one packet; CAN-FD = 76 B as 64 + 12) and queues it on the CAN controller.
  */
-void gs_usb_ep_out_cb(uint32_t len)
+void gs_usb_ep_out_packet(const uint8_t *data, uint32_t len)
 {
-    if (len < 20 || len > GS_HOST_FRAME_SIZE)
-        goto rearm;   /* malformed */
+    if (len == 0 || len > CAN_DATA_MAX_PACKET_SIZE)
+        return;   /* malformed packet */
 
+    if (gs_rx_fill + len > sizeof(gs_rx_frame))
+        gs_rx_fill = 0;   /* overflow guard: restart */
+
+    memcpy((uint8_t *)&gs_rx_frame + gs_rx_fill, data, len);
+    gs_rx_fill += len;
+
+    /*
+     * Frame is complete when:
+     *  - the header is present and the frame is classic (short packet, 20 B), or
+     *  - a full FD frame (76 B) has been assembled.
+     */
+    uint32_t expect;
+    if (gs_rx_fill < GS_FRAME_HEADER_SIZE)
+        return;   /* need more data to know the type */
+
+    if (gs_rx_frame.flags & GS_CAN_FLAG_FD)
+        expect = GS_FRAME_LEN_FD;
+    else
+        expect = GS_FRAME_LEN_CLASSIC;
+
+    if (gs_rx_fill < expect)
+        return;   /* wait for the remaining packets */
+
+    /* Full frame available: dispatch to the CAN controller. */
     struct gs_host_frame *f = &gs_rx_frame;
 
     FDCAN_TxHeaderType hdr;
@@ -302,26 +329,25 @@ void gs_usb_ep_out_cb(uint32_t len)
 
     /* FD vs classic (BRS handled via BitRateSwitch) */
     if (f->flags & GS_CAN_FLAG_FD) {
-        hdr.FDFormat     = FDCAN_FD_CAN;
+        hdr.FDFormat      = FDCAN_FD_CAN;
         hdr.BitRateSwitch = (f->flags & GS_CAN_FLAG_BRS) ? FDCAN_BRS_ON
                                                          : FDCAN_BRS_OFF;
         hdr.ErrorState    = (f->flags & GS_CAN_FLAG_ESI) ? FDCAN_ESI_PASSIVE
                                                          : FDCAN_ESI_ACTIVE;
     } else {
-        hdr.FDFormat     = FDCAN_CLASSIC_CAN;
+        hdr.FDFormat      = FDCAN_CLASSIC_CAN;
         hdr.BitRateSwitch = FDCAN_BRS_OFF;
         hdr.ErrorState    = FDCAN_ESI_ACTIVE;
     }
 
-    hdr.DataLength = gs_dlc_to_hal(f->can_dlc);
+    hdr.DataLength  = gs_dlc_to_hal(f->can_dlc);
     hdr.TxEventFifo = FDCAN_NO_TX_EVENTS;
     hdr.MsgMarker   = 0;
 
     can_tx(&hdr, f->canfd.data);
 
-rearm:
-    /* Re-arm EP2 OUT for the next host frame. */
-    SetEPRxStatus(ENDP2, EP_RX_VALID);
+    /* Prepare for the next frame. */
+    gs_rx_fill = 0;
 }
 
 void gs_usb_send_frame(uint32_t can_id, uint8_t dlc, uint8_t flags,
@@ -506,12 +532,6 @@ void gs_usb_apply_control(uint8_t bRequest, const uint8_t *payload)
         default:
             break;
     }
-}
-
-/* Expose the RX staging buffer so usb_endp.c can arm the OUT receive. */
-struct gs_host_frame *gs_usb_rx_buffer(void)
-{
-    return &gs_rx_frame;
 }
 
 /*
