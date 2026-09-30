@@ -1,46 +1,45 @@
 /**
  * @file    usb_endp.c
- * @brief   USB Endpoint callbacks for CANable2-N32 (CDC ACM)
+ * @brief   USB Endpoint callbacks for CANable2-N32 (gs_usb vendor class)
  *
  * Called from the N32 USB interrupt handler (USB_Istr -> USB_CorrectTransferLp).
- * These handle data transfer on the CDC bulk endpoints.
+ *   EP1 IN  (0x81) Bulk — CAN frames device -> host
+ *   EP2 OUT (0x02) Bulk — CAN frames host -> device
  */
 
 #include "usbfsd_lib.h"
 #include "usb_desc.h"
 #include "usbfsd_mem.h"
-
-/* External: CDC receive callback in usbd_cdc_if.c */
-extern void CDC_EP1_OUT_Callback(void);
-extern void cdc_tx_done(void);    /* signal TX complete, reset tx_active */
+#include "usb_conf.h"
+#include "gs_usb.h"
 
 
 /**
- * @brief  EP1 IN callback — called when a bulk IN transfer completes.
- *         EP1 IN is used for CDC data device->host.
+ * @brief  EP1 IN callback — a bulk IN (device -> host) transfer completed.
  */
 void EP1_IN_Callback(void)
 {
-    SetEPTxStatus(ENDP1, EP_TX_NAK);
-    cdc_tx_done();    /* allow next queued packet to be sent */
+    gs_usb_ep_in_cb();
 }
 
 
 /**
- * @brief  EP1 OUT callback — called when bulk OUT data arrives from host.
- *         EP1 OUT is used for CDC data host->device.
+ * @brief  EP2 OUT callback — bulk OUT data arrived from the host.
+ *         Copy it into the gs_usb RX staging buffer and let the protocol
+ *         layer handle it; the layer re-arms the endpoint.
  */
-void EP1_OUT_Callback(void)
+void EP2_OUT_Callback(void)
 {
-    CDC_EP1_OUT_Callback();
-}
+    uint32_t len = USB_SilRead(GSUSB_ENDPOINT_OUT,
+                               (uint8_t *)gs_usb_rx_buffer());
 
-
-/**
- * @brief  EP2 IN callback — called when interrupt IN transfer completes.
- *         EP2 IN is used for CDC serial state notifications.
- */
-void EP2_IN_Callback(void)
-{
-    SetEPTxStatus(ENDP2, EP_TX_NAK);
+    if (len > 0 && len <= CAN_DATA_MAX_PACKET_SIZE)
+    {
+        gs_usb_ep_out_cb(len);
+    }
+    else
+    {
+        /* Malformed/oversized: just re-arm. */
+        SetEPRxStatus(ENDP2, EP_RX_VALID);
+    }
 }

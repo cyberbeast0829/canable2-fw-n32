@@ -8,6 +8,7 @@
 
 #include <stdint.h>
 #include "n32h47x_48x.h"
+#include "n32h47x_48x_fdcan.h"
 
 
 // Classic CAN / CANFD nominal bitrates

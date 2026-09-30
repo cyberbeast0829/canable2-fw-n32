@@ -2,28 +2,19 @@
  * @file    main.c
  * @brief   CANable2 firmware main entry point (N32H473 port)
  *
- * USB-to-CAN bridge firmware implementing slcan protocol.
- *   - Receives slcan ASCII commands via USB CDC
- *   - Parses and transmits CAN/CANFD frames
- *   - Receives CAN/CANFD frames and sends them as slcan ASCII via USB
+ * USB-to-CAN bridge firmware implementing the gs_usb (candleLight) protocol.
+ *   - Receives gs_host_frame packets via USB vendor bulk EP2 OUT -> CAN TX
+ *   - Receives CAN/FDCAN frames and sends them as gs_host_frame via EP1 IN
  */
 
 #include "n32h47x_48x.h"
 #include "n32h47x_48x_conf.h"
 #include "system.h"
 #include "can.h"
-#include "slcan.h"
+#include "gs_usb.h"
 #include "led.h"
 #include "error.h"
-#include "printf.h"
-#include "usbd_cdc_if.h"
-
-// Firmware identification
-char* fw_id = GIT_VERSION " " GIT_REMOTE "\r";
-
-// SLCAN receive buffer
-uint8_t slcan_str[SLCAN_MTU];
-uint8_t slcan_str_index = 0;
+#include "usb_init.h"
 
 
 int main(void)
@@ -40,13 +31,12 @@ int main(void)
     // Storage for CAN RX message
     FDCAN_RxHeaderType rx_msg_header;
     uint8_t rx_msg_data[64] = {0};
-    uint8_t msg_buf[SLCAN_MTU];
 
     while (1)
     {
         led_process();
         can_process();
-        cdc_process();
+        gs_usb_process();
 
         // Check for received CAN messages
         if (is_can_msg_pending(FDCAN_RX_FIFO0))  // RX FIFO 0
@@ -54,14 +44,8 @@ int main(void)
             // Read CAN frame
             if (can_rx(&rx_msg_header, rx_msg_data) == SUCCESS)
             {
-                // Parse frame into SLCAN ASCII format
-                int32_t msg_len = slcan_parse_frame(msg_buf, &rx_msg_header, rx_msg_data);
-
-                // Transmit via USB CDC
-                if (msg_len > 0)
-                {
-                    cdc_transmit(msg_buf, msg_len);
-                }
+                // Forward to host as a gs_host_frame (queued on EP1 IN)
+                gs_usb_send_can_rx(&rx_msg_header, rx_msg_data);
             }
         }
     }

@@ -1,11 +1,11 @@
 /**
  * @file    usb_conf.h
- * @brief   USB Device configuration for CANable2-N32 (CDC ACM)
+ * @brief   USB Device configuration for CANable2-N32 (gs_usb vendor class)
  *
- * Endpoint layout (matching ODrive verified config):
+ * Endpoint layout:
  *   EP0: Control (bidirectional)
- *   EP1: Bulk IN + OUT  — CDC data (64 bytes)
- *   EP2: Interrupt IN     — CDC notification (8 bytes)
+ *   EP1: Bulk IN        — CAN frames device -> host (64 bytes)
+ *   EP2: Bulk OUT       — CAN frames host -> device (64 bytes)
  */
 
 #ifndef __USB_CONF_H
@@ -21,30 +21,28 @@
 #define ENDP0_RXADDR                (0x40)
 #define ENDP0_TXADDR                (0x80)
 
-/* EP1 addresses — CDC Bulk (64 bytes each direction) */
-#define ENDP1_RXADDR                (0xC0)
+/* EP1 address — Bulk IN (device -> host, 64 bytes).
+ * Use the same PMA address the working CDC build used for EP1 TX. */
 #define ENDP1_TXADDR                (0x110)
 
-/* EP2 addresses — CDC Interrupt IN (8 bytes) */
-#define ENDP2_TXADDR                (0x150)
+/* EP2 address — Bulk OUT (host -> device, 64 bytes).
+ * Use the same PMA address the working CDC build used for EP2 (0x150). */
+#define ENDP2_RXADDR                (0x150)
 
 /* Interrupt mask: Correct Transfer | Reset | Wakeup */
 #define IMR_MSK (CTRL_CTRSM | CTRL_WKUPM | CTRL_RSTM)
 
-/* CDC class-specific request codes (not provided by N32 USB library) */
-#define SET_LINE_CODING         0x20
-#define GET_LINE_CODING         0x21
-#define SET_CONTROL_LINE_STATE  0x22
-#define SET_COMM_FEATURE        0x02
-
-/* Unused endpoint callbacks → library no-op (matching ODrive pattern) */
+/* Unused endpoint callbacks → library no-op.
+ *   EP1 is IN-only  (no EP1 OUT handler)
+ *   EP2 is OUT-only (no EP2 IN handler) */
+#define EP2_IN_Callback     USB_ProcessNop
+#define EP1_OUT_Callback    USB_ProcessNop
 #define EP3_IN_Callback     USB_ProcessNop
 #define EP4_IN_Callback     USB_ProcessNop
 #define EP5_IN_Callback     USB_ProcessNop
 #define EP6_IN_Callback     USB_ProcessNop
 #define EP7_IN_Callback     USB_ProcessNop
 
-#define EP2_OUT_Callback    USB_ProcessNop
 #define EP3_OUT_Callback    USB_ProcessNop
 #define EP4_OUT_Callback    USB_ProcessNop
 #define EP5_OUT_Callback    USB_ProcessNop

@@ -18,13 +18,15 @@ __IO uint32_t wCNTR         = 0;
 
 /* Forward declarations of endpoint callbacks (defined in usb_endp.c) */
 extern void EP1_IN_Callback(void);
-extern void EP1_OUT_Callback(void);
-extern void EP2_IN_Callback(void);
+extern void EP2_OUT_Callback(void);
 
-/* endpoint callback arrays */
+/* endpoint callback arrays
+ *   EP1 = Bulk IN  -> only IN callback is meaningful
+ *   EP2 = Bulk OUT -> only OUT callback is meaningful
+ *   unused endpoints route to USB_ProcessNop (see usb_conf.h) */
 void (*pEpInt_IN[7])(void) = {
-    EP1_IN_Callback,
-    EP2_IN_Callback,
+    EP1_IN_Callback,    /* EP1 IN */
+    EP2_IN_Callback,    /* EP2 has no IN -> USB_ProcessNop (usb_conf.h) */
     EP3_IN_Callback,
     EP4_IN_Callback,
     EP5_IN_Callback,
@@ -33,8 +35,8 @@ void (*pEpInt_IN[7])(void) = {
 };
 
 void (*pEpInt_OUT[7])(void) = {
-    EP1_OUT_Callback,
-    EP2_OUT_Callback,
+    EP1_OUT_Callback,   /* EP1 has no OUT -> USB_ProcessNop (usb_conf.h) */
+    EP2_OUT_Callback,   /* EP2 OUT */
     EP3_OUT_Callback,
     EP4_OUT_Callback,
     EP5_OUT_Callback,

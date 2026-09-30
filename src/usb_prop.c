@@ -1,9 +1,10 @@
 /**
  * @file    usb_prop.c
- * @brief   USB Device Property callbacks for CANable2-N32 (CDC ACM)
+ * @brief   USB Device Property callbacks for CANable2-N32 (gs_usb vendor class)
  *
  * Based on ODrive usb_prop.c.  Provides Device_Property and
- * User_Standard_Requests structures required by the N32 USB library.
+ * User_Standard_Requests structures required by the N32 USB library,
+ * wired for the gs_usb vendor-class interface.
  */
 
 #include "usbfsd_lib.h"
@@ -11,17 +12,17 @@
 #include "usb_prop.h"
 #include "usb_desc.h"
 #include "usb_pwr.h"
+#include "gs_usb.h"
 
-/* Private variables */
-static uint8_t Request = 0;
+/* -------------------------------------------------------------------------- */
+/* Vendor control-request state                                               */
+/* -------------------------------------------------------------------------- */
 
-LINE_CODING linecoding =
-{
-    7372800, /* baud rate */
-    0x00,   /* stop bits: 1 */
-    0x00,   /* parity: none */
-    0x08    /* data bits: 8 */
-};
+/* Destination for host->device vendor payloads (applied on status stage). */
+static uint8_t gs_vendor_out_buf_store[64] __attribute__((aligned(4)));
+
+/* Pending host->device vendor request code (0 = none). */
+static uint8_t gs_pending_request = 0;
 
 /* -------------------------------------------------------------------------- */
 /* Device descriptor wrapper structures                                       */
@@ -96,6 +97,8 @@ void Virtual_Com_Port_init(void)
     PowerOn();
     USB_SilInit();
 
+    gs_usb_reset();
+
     /* Pull up DP to signal connection to host */
     _EnPortPullup();
 
@@ -119,25 +122,18 @@ void Virtual_Com_Port_Reset(void)
     USB_SetEpRxCnt(ENDP0, Device_Property.MaxPacketSize);
     USB_SetEpRxValid(ENDP0);
 
-    /* Initialize Endpoint 1 IN (Bulk — CDC data device->host)
-     * Set to NAK initially — only arm when cdc_process() has data to send.
-     * Setting EP_TX_VALID here would cause 64 bytes of garbage from the
-     * uninitialized PMA buffer to be sent on the first host IN token. */
+    /* EP1 IN (Bulk — gs_usb device->host). NAK until data is queued. */
     USB_SetEpType(ENDP1, EP_BULK);
     USB_SetEpTxAddr(ENDP1, ENDP1_TXADDR);
     SetEPTxStatus(ENDP1, EP_TX_NAK);
 
-    /* Initialize Endpoint 1 OUT (Bulk — CDC data host->device) */
-    USB_SetEpType(ENDP1, EP_BULK);
-    USB_SetEpRxAddr(ENDP1, ENDP1_RXADDR);
-    USB_SetEpRxCnt(ENDP1, Device_Property.MaxPacketSize);
-    SetEPRxStatus(ENDP1, EP_RX_VALID);
+    /* EP2 OUT (Bulk — gs_usb host->device). Ready to receive. */
+    USB_SetEpType(ENDP2, EP_BULK);
+    USB_SetEpRxAddr(ENDP2, ENDP2_RXADDR);
+    USB_SetEpRxCnt(ENDP2, CAN_DATA_MAX_PACKET_SIZE);
+    SetEPRxStatus(ENDP2, EP_RX_VALID);
 
-    /* Initialize Endpoint 2 (Interrupt IN — CDC notification) */
-    USB_SetEpType(ENDP2, EP_INTERRUPT);
-    USB_SetEpTxAddr(ENDP2, ENDP2_TXADDR);
-    SetEPRxStatus(ENDP2, EP_RX_DIS);
-    SetEPTxStatus(ENDP2, EP_TX_NAK);
+    gs_usb_reset();
 
     USB_SetDeviceAddress(0);
     bDeviceState = ATTACHED;
@@ -149,7 +145,9 @@ void Virtual_Com_Port_SetConfiguration(void)
     {
         bDeviceState = CONFIGURED;
         USB_ClrDattogTx(ENDP1);
-        USB_ClrDattogRx(ENDP1);
+        USB_ClrDattogRx(ENDP2);
+        /* Open gs_usb endpoints and prime the first OUT receive. */
+        gs_usb_start();
     }
 }
 
@@ -160,46 +158,93 @@ void Virtual_Com_Port_SetDeviceAddress(void)
 
 void Virtual_Com_Port_Status_In(void)
 {
-    if (Request == SET_LINE_CODING)
-        Request = 0;
+    /* Apply a staged host->device vendor request once its data is in. */
+    if (gs_pending_request != 0)
+    {
+        gs_usb_apply_control(gs_pending_request, gs_vendor_out_buf_store);
+        gs_pending_request = 0;
+    }
 }
 
 void Virtual_Com_Port_Status_Out(void)
 {
 }
 
+/*
+ * Vendor control-request data callbacks.
+ *
+ * The N32 USB library drives the data stage through Ctrl_Info.CopyData:
+ *   - OUT (host->device): library calls CopyData(Length!=0), expects the
+ *     destination buffer where it will copy the received bytes.
+ *   - IN  (device->host): library calls CopyData(0) to learn total length,
+ *     then CopyData(Length!=0) to fetch each chunk. This is exactly the
+ *     Standard_GetDescriptorData() contract.
+ */
+
+static uint8_t *gs_vendor_out_buf(uint16_t Length)
+{
+    (void)Length;
+    return gs_vendor_out_buf_store;
+}
+
+/* Last vendor IN buffer pointer + length (device->host). */
+static uint8_t *gs_vendor_in_ptr = NULL;
+static uint16_t gs_vendor_in_len = 0;
+
+static uint8_t *gs_vendor_in_cb(uint16_t Length)
+{
+    uint32_t off = pInformation->Ctrl_Info.Usb_wOffset;
+
+    if (Length == 0)
+    {
+        pInformation->Ctrl_Info.Usb_wLength = gs_vendor_in_len - off;
+        return NULL;
+    }
+    return gs_vendor_in_ptr + off;
+}
+
+/*
+ * Data stage handler for vendor requests.
+ *  - Device -> Host (IN):  resolve vendor_data and serve it.
+ *  - Host -> Device (OUT): receive into gs_vendor_out_buf; applied in
+ *                          Virtual_Com_Port_Status_In().
+ */
 USB_Result Virtual_Com_Port_Data_Setup(uint8_t RequestNo)
 {
-    uint8_t *(*CopyRoutine)(uint16_t) = NULL;
+    uint8_t *vendor_data = NULL;
+    uint16_t vendor_len = 0;
 
-    if (RequestNo == GET_LINE_CODING)
-    {
-        if (Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
-            CopyRoutine = Virtual_Com_Port_GetLineCoding;
-    }
-    else if (RequestNo == SET_LINE_CODING)
-    {
-        if (Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
-            CopyRoutine = Virtual_Com_Port_SetLineCoding;
-        Request = SET_LINE_CODING;
-    }
-
-    if (CopyRoutine == NULL)
+    if (Type_Recipient != (VENDOR_REQUEST | INTERFACE_RECIPIENT))
         return UnSupport;
 
-    pInformation->Ctrl_Info.CopyData = CopyRoutine;
+    if (!gs_usb_setup_request(RequestNo, pInformation->USBwValue,
+                              &vendor_data, &vendor_len))
+        return UnSupport;
+
     pInformation->Ctrl_Info.Usb_wOffset = 0;
-    (*CopyRoutine)(0);
+
+    if (pInformation->bmRequestType & 0x80)
+    {
+        /* IN: device -> host */
+        gs_vendor_in_ptr = vendor_data;
+        gs_vendor_in_len = vendor_len;
+        pInformation->Ctrl_Info.CopyData = gs_vendor_in_cb;
+        pInformation->Ctrl_Info.Usb_wLength = vendor_len;
+    }
+    else
+    {
+        /* OUT: host -> device — receive into our buffer, apply on status. */
+        gs_pending_request = RequestNo;
+        pInformation->Ctrl_Info.CopyData = gs_vendor_out_buf;
+        pInformation->Ctrl_Info.Usb_wLength = pInformation->USBwLength;
+    }
+
     return Success;
 }
 
 USB_Result Virtual_Com_Port_NoData_Setup(uint8_t RequestNo)
 {
-    if (Type_Recipient == (CLASS_REQUEST | INTERFACE_RECIPIENT))
-    {
-        if (RequestNo == SET_COMM_FEATURE || RequestNo == SET_CONTROL_LINE_STATE)
-            return Success;
-    }
+    (void)RequestNo;
     return UnSupport;
 }
 
@@ -223,29 +268,11 @@ uint8_t *Virtual_Com_Port_GetStringDescriptor(uint16_t Length)
 
 USB_Result Virtual_Com_Port_Get_Interface_Setting(uint8_t Interface, uint8_t AlternateSetting)
 {
+    if (Interface > 0)
+        return UnSupport;
     if (AlternateSetting > 0)
         return UnSupport;
     return Success;
-}
-
-uint8_t *Virtual_Com_Port_GetLineCoding(uint16_t Length)
-{
-    if (Length == 0)
-    {
-        pInformation->Ctrl_Info.Usb_wLength = sizeof(linecoding);
-        return NULL;
-    }
-    return (uint8_t *)&linecoding;
-}
-
-uint8_t *Virtual_Com_Port_SetLineCoding(uint16_t Length)
-{
-    if (Length == 0)
-    {
-        pInformation->Ctrl_Info.Usb_wLength = sizeof(linecoding);
-        return NULL;
-    }
-    return (uint8_t *)&linecoding;
 }
 
 /* Standard request stubs */
