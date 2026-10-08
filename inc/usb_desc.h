@@ -19,7 +19,7 @@
 #define VIRTUAL_COM_PORT_SIZ_STRING_LANGID      4
 #define VIRTUAL_COM_PORT_SIZ_STRING_VENDOR      16    /* "candle"  = 7 chars * 2 + 2 */
 #define VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT     22    /* "CANable2.0" = 10 chars * 2 + 2 */
-#define VIRTUAL_COM_PORT_SIZ_STRING_SERIAL      30    /* "CyberBeast-can" = 14 chars * 2 + 2 */
+#define VIRTUAL_COM_PORT_SIZ_STRING_SERIAL      50    /* UID: 24 hex chars * 2 + 2 (runtime) */
 #define VIRTUAL_COM_PORT_SIZ_STRING_CONFIG      14    /* "gs_usb" = 6 chars * 2 + 2 */
 #define VIRTUAL_COM_PORT_SIZ_STRING_INTERFACE   34    /* "gs_usb interface" = 16 chars * 2 + 2 */
 
@@ -84,5 +84,9 @@ extern const uint8_t Virtual_Com_Port_StringProduct[VIRTUAL_COM_PORT_SIZ_STRING_
 extern const uint8_t Virtual_Com_Port_StringConfig[VIRTUAL_COM_PORT_SIZ_STRING_CONFIG];
 extern const uint8_t Virtual_Com_Port_StringInterface[VIRTUAL_COM_PORT_SIZ_STRING_INTERFACE];
 extern uint8_t Virtual_Com_Port_StringSerial[VIRTUAL_COM_PORT_SIZ_STRING_SERIAL];
+
+/* Build the serial-number string descriptor from the 96-bit device UID.
+ * Call once during USB init, before enumeration. */
+void Virtual_Com_Port_BuildSerial(void);
 
 #endif /* __USB_DESC_H */

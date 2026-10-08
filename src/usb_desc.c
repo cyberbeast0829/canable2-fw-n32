@@ -120,13 +120,45 @@ const uint8_t Virtual_Com_Port_StringProduct[VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT
     '2', 0, '.', 0, '0', 0
 };
 
+/* Serial number string: built at runtime from the 96-bit device UID
+ * (UID_BASE, 12 bytes). Formatted as 24 uppercase hex digits, e.g.
+ * "0123456789ABCDEF01234567". This gives every board a unique serial number,
+ * which also gives Windows/Linux a stable, per-device instance identity.
+ * The string descriptor is UTF-16LE, hence 2 bytes per ASCII character. */
 uint8_t Virtual_Com_Port_StringSerial[VIRTUAL_COM_PORT_SIZ_STRING_SERIAL] =
 {
-    VIRTUAL_COM_PORT_SIZ_STRING_SERIAL,
-    USB_STRING_DESCRIPTOR_TYPE,
-    'C', 0, 'y', 0, 'b', 0, 'e', 0, 'r', 0, 'B', 0, 'e', 0, 'a', 0,
-    's', 0, 't', 0, '-', 0, 'c', 0, 'a', 0, 'n', 0
+    /* Filled in by Virtual_Com_Port_BuildSerial(). */
 };
+
+static void u32_to_hex8(char *out, uint32_t val)
+{
+    static const char digits[] = "0123456789ABCDEF";
+    for (int i = 7; i >= 0; i--)
+    {
+        out[i] = digits[val & 0x0F];
+        val >>= 4;
+    }
+}
+
+/* Build the serial-number string descriptor from the device UID.
+ * Call once during USB init (before enumeration). */
+void Virtual_Com_Port_BuildSerial(void)
+{
+    char hex[25];  /* 24 hex chars + NUL */
+
+    u32_to_hex8(hex +  0, *(volatile uint32_t *)(UID_BASE + 0));
+    u32_to_hex8(hex +  8, *(volatile uint32_t *)(UID_BASE + 4));
+    u32_to_hex8(hex + 16, *(volatile uint32_t *)(UID_BASE + 8));
+    hex[24] = '\0';
+
+    Virtual_Com_Port_StringSerial[0] = VIRTUAL_COM_PORT_SIZ_STRING_SERIAL;
+    Virtual_Com_Port_StringSerial[1] = USB_STRING_DESCRIPTOR_TYPE;
+    for (int i = 0; i < 24; i++)
+    {
+        Virtual_Com_Port_StringSerial[2 + i * 2]     = (uint8_t)hex[i];
+        Virtual_Com_Port_StringSerial[2 + i * 2 + 1] = 0;
+    }
+}
 
 /* Configuration string (index 4). Windows tolerates iConfiguration==0, but a
  * valid index is safer and matches candleLight (which also exposes one). */

@@ -106,6 +106,10 @@ void Virtual_Com_Port_init(void)
     PowerOn();
     USB_SilInit();
 
+    /* Build the USB serial number from the device UID (must be ready before
+     * enumeration starts). */
+    Virtual_Com_Port_BuildSerial();
+
     gs_usb_reset();
 
     /* Pull up DP to signal connection to host */
