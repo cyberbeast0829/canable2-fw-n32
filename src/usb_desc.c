@@ -109,15 +109,15 @@ const uint8_t Virtual_Com_Port_StringVendor[VIRTUAL_COM_PORT_SIZ_STRING_VENDOR] 
 {
     VIRTUAL_COM_PORT_SIZ_STRING_VENDOR,
     USB_STRING_DESCRIPTOR_TYPE,
-    'c', 0, 'a', 0, 'n', 0, 'a', 0, 'b', 0, 'l', 0, 'e', 0
+    'C', 0, 'y', 0, 'b', 0, 'e', 0, 'r', 0, 'B', 0, 'e', 0, 'a', 0,
+    's', 0, 't', 0
 };
 
 const uint8_t Virtual_Com_Port_StringProduct[VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT] =
 {
     VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT,
     USB_STRING_DESCRIPTOR_TYPE,
-    'C', 0, 'A', 0, 'N', 0, 'a', 0, 'b', 0, 'l', 0, 'e', 0,
-    '2', 0, '.', 0, '0', 0
+    'g', 0, 's', 0, '_', 0, 'u', 0, 's', 0, 'b', 0
 };
 
 /* Serial number string: built at runtime from the 96-bit device UID

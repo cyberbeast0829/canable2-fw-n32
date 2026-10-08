@@ -17,8 +17,8 @@
 #define VIRTUAL_COM_PORT_SIZ_DEVICE_DESC        18
 #define VIRTUAL_COM_PORT_SIZ_CONFIG_DESC        32
 #define VIRTUAL_COM_PORT_SIZ_STRING_LANGID      4
-#define VIRTUAL_COM_PORT_SIZ_STRING_VENDOR      16    /* "candle"  = 7 chars * 2 + 2 */
-#define VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT     22    /* "CANable2.0" = 10 chars * 2 + 2 */
+#define VIRTUAL_COM_PORT_SIZ_STRING_VENDOR      22    /* "CyberBeast"  = 10 chars * 2 + 2 */
+#define VIRTUAL_COM_PORT_SIZ_STRING_PRODUCT     14    /* "gs_usb" = 6 chars * 2 + 2 */
 #define VIRTUAL_COM_PORT_SIZ_STRING_SERIAL      50    /* UID: 24 hex chars * 2 + 2 (runtime) */
 #define VIRTUAL_COM_PORT_SIZ_STRING_CONFIG      14    /* "gs_usb" = 6 chars * 2 + 2 */
 #define VIRTUAL_COM_PORT_SIZ_STRING_INTERFACE   34    /* "gs_usb interface" = 16 chars * 2 + 2 */
