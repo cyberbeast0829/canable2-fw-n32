@@ -1,66 +1,130 @@
-# CANable 2.0 Firmware
+# CANable 2.0 (N32H473) — gs_usb / candleLight firmware
 
-This repository contains sources for the slcan CANable 2.0 firmware. This firmware implements non-standard slcan commands to support CANFD messaging alongside a LAWICEL-style command set.
+USB-to-CAN / CAN-FD adapter firmware for the CANable 2.0 hardware, ported to the
+Nations **N32H473CEU7** MCU. This branch implements the **gs_usb** binary
+protocol (candleLight-compatible) over a single vendor-specific USB interface.
 
-## Supported Commands
+Because it speaks gs_usb, the device works out of the box with:
 
-- `O` - Open channel 
-- `C` - Close channel 
-- `S0` - Set nominal bitrate to 10k
-- `S1` - Set nominal bitrate to 20k
-- `S2` - Set nominal bitrate to 50k
-- `S3` - Set nominal bitrate to 100k
-- `S4` - Set nominal bitrate to 125k
-- `S5` - Set nominal bitrate to 250k
-- `S6` - Set nominal bitrate to 500k
-- `S7` - Set nominal bitrate to 750k
-- `S8` - Set nominal bitrate to 1M
-- `S9` - Set nominal bitrate to 83.3k
-- `Y2` - Set data bitrate to 2M (CANFD only) (default)
-- `Y5` - Set data bitrate to 5M (CANFD only)
-- `M0` - Set mode to normal mode (default)
-- `M1` - Set mode to silent mode
-- `A0` - Disable automatic retransmission 
-- `A1` - Enable automatic retransmission (default)
-- `tIIILDD...` - Transmit data frame (Standard ID) [ID, length, data]
-- `TIIIIIIIILDD...` - Transmit data frame (Extended ID) [ID, length, data]
-- `RIIIIIIIIL` - Transmit remote frame (Extended ID) [ID, length]
-- `rIIIL` - Transmit remote frame (Standard ID) [ID, length]
-- `dIIILDD...` - Transmit CAN FD standard ID (no BRS) [ID, length]
-- `DIIIIIIIILDD...` - Transmit CAN FD extended ID (no BRS) [ID, length]
-- `bIIILDD...` - Transmit CAN FD BRS standard ID [ID, length]
-- `BIIIIIIIILDD...` - Transmit CAN FD extended ID [ID, length]
+- **Linux** — the in-tree `gs_usb` SocketCAN driver creates a `can0` interface
+- **Windows** — WinUSB, bound automatically through Microsoft OS descriptors
+  (no Zadig / manual driver install required)
+- **Cross-platform tools** — Cangaroo, Candle.NET, python-can (`gs_usb` backend),
+  etc., addressed by `VID:PID = 0x1d50:0x606f`
 
-- `V` - Returns firmware version and remote path as a string
-- `E` - Returns error register
+> The `master` branch still carries the original LAWICEL/slcan (CDC-ACM)
+> firmware. This `candlelight` branch replaces the slcan command interface with
+> the gs_usb binary protocol.
 
-Note: CANFD message lengths are as follows (expressed in hexadecimal):
-- `0-8`: Same as standard CAN
-- `9`: Length = 12
-- `A`: Length = 16
-- `B`: Length = 20
-- `C`: Length = 24
-- `D`: Length = 32
-- `E`: Length = 48
-- `F`: Length = 64
+## Features
 
-Note: Channel configuration commands must be sent before opening the channel. The channel must be opened before transmitting frames.
+- gs_usb protocol, single CAN channel
+- Classical CAN and **CAN-FD** (separate nominal / data bitrates, BRS)
+- Bus modes: normal, listen-only, loopback; one-shot transmit
+- USB vendor class with bulk IN/OUT (64-byte max packet)
+- `VID:PID = 0x1d50:0x606f` (same as candleLight, so host drivers bind automatically)
+- **Windows driverless** via MS OS descriptors:
+  - Compatible ID `WINUSB`
+  - DeviceInterfaceGUID `{c15b4308-04d3-11e6-b3ea-6057189e6443}`
+- Unique USB serial number derived from the 96-bit chip UID
 
-This firmware currently does not provide any ACK/NACK feedback for serial commands.
+## Hardware
+
+| Item       | Value                                     |
+|------------|-------------------------------------------|
+| MCU        | Nations N32H473CEU7 (Cortex-M4F, 240 MHz) |
+| USB        | Full-Speed device — DM = PA11, DP = PA12  |
+| CAN        | FDCAN1 — RX = PB12, TX = PB13             |
+| CAN clock  | 40 MHz (PLL / 6)                          |
+| Status LED | PA0                                       |
+| Flash      | 512 KB @ `0x08000000`                     |
 
 ## Building
 
-Firmware builds with GCC. Specifically, you will need gcc-arm-none-eabi, which
-is packaged for Windows, OS X, and Linux on
-[Launchpad](https://launchpad.net/gcc-arm-embedded/+download). Download for your
-system and add the `bin` folder to your PATH.
+The firmware builds with the GNU Arm Embedded Toolchain (`arm-none-eabi-gcc`).
+Install it (e.g. `sudo apt install gcc-arm-none-eabi`, or download from the
+[Arm developer site](https://developer.arm.com/downloads/-/arm-gnu-toolchain-downloads)),
+make sure `arm-none-eabi-gcc` is on your `PATH`, then run:
 
-Your Linux distribution may also have a prebuilt package for `arm-none-eabi-gcc`, check your distro's repositories to see if a build exists. Simply compile by running `make`. 
+```
+make
+```
 
-## Flashing with the Bootloader
+Output artifacts are written to `build/` (`.elf`, `.bin`, `.hex`).
 
-Plug in your CANable2 while pressing down the BOOT button. The blue LED should be dimly illuminated. Next, type `make flash` and your CANable will be updated to the latest firwmare. Unplug/replug the device after moving the boot jumper back, and your CANable will be up and running.
+### Build options
 
+The following Make variables can be overridden on the command line (defaults in
+parentheses). They are mainly useful for derivative boards or for testing on a
+host that has already cached a particular USB identity.
+
+| Variable        | Default  | Description                                                                |
+|-----------------|----------|----------------------------------------------------------------------------|
+| `USB_VID`       | `0x1d50` | USB vendor ID                                                              |
+| `USB_PID`       | `0x606f` | USB product ID                                                             |
+| `USB_BCDDEVICE` | `0x0200` | USB `bcdDevice` (device revision)                                          |
+| `MSOS_USE_20`   | `0`      | `0` = MS OS 1.0 (default, bcdUSB 2.00); `1` = also advertise BOS + MS OS 2.0 (bcdUSB 2.01) |
+
+Example:
+
+```
+make USB_PID=0x6070
+```
+
+## Flashing
+
+Flash the resulting `build/canable2-n32-*.bin` (or `.hex`) with your SWD probe or
+the on-board bootloader, for example:
+
+- **J-Link**:
+
+  ```
+  JLink.exe -device N32H473CE -if SWD -speed 4000 -autoconnect 1
+  ```
+
+- **OpenOCD / ST-Link / DAPLink**: program flash at base `0x08000000` using the
+  memory layout from `N32H473CEUx_FLASH.ld`.
+
+- **dfu-util** (if a DFU bootloader is present):
+
+  ```
+  dfu-util -D build/canable2-n32-*.bin -a 0 -s 0x08000000:leave
+  ```
+
+## Usage
+
+### Linux (SocketCAN)
+
+The kernel `gs_usb` driver binds automatically. Bring the interface up and use
+the standard `can-utils`:
+
+```
+# Classical CAN at 1 Mbit/s
+sudo ip link set can0 up type can bitrate 1000000
+
+# CAN-FD: 1 Mbit/s nominal + 5 Mbit/s data
+sudo ip link set can0 up type can bitrate 1000000 dbitrate 5000000 fd on
+
+candump can0
+cansend can0 123#DEADBEEF
+```
+
+> CAN-FD requires a kernel with the FD-capable `gs_usb` driver (Linux 6.x).
+
+### Windows
+
+WinUSB binds automatically through the MS OS descriptors, so the device appears
+as a "WinUSB device" exposing the interface GUID
+`{c15b4308-04d3-11e6-b3ea-6057189e6443}`. No driver installation is required.
+
+## Notes and limitations
+
+- Single CAN channel (`icount = 0`).
+- Hardware timestamps are not implemented (the timestamp field is currently 0).
+- TX frames are echoed back to the host as soon as they are queued to the CAN
+  peripheral, not when the frame is actually acknowledged on the bus. This
+  matches upstream candleLight behaviour and affects one-shot and timestamp
+  edge cases.
 
 ## License
 
