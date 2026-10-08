@@ -41,6 +41,29 @@ endif
 # Uncomment for CAN loopback test (no external CAN bus needed)
 # USER_CFLAGS += -DCAN_LOOPBACK_TEST
 
+# USB VID/PID override. Default matches candleLight (Linux gs_usb auto-binds).
+# To test Windows driverless binding on a machine that already cached this
+# VID/PID, build with a fresh PID, e.g.:
+#   make USB_PID=0x606e
+# (0x1d50:0x606f is used by gs_usb; other 0x606x values are free for testing.)
+USB_VID ?= 0x1d50
+USB_PID ?= 0x606f
+USER_DEFS += -DUSB_VID=$(USB_VID) -DUSB_PID=$(USB_PID)
+
+# USB bcdDevice override. Windows keys its per-device cache (Enum\USB + the
+# usbflags\VIDPIDREV\osvc entry) on VID+PID+bcdDevice, so bumping this also
+# forces a fresh MS OS descriptor query without changing the PID:
+#   make USB_BCDDEVICE=0x0300
+USB_BCDDEVICE ?= 0x0200
+USER_DEFS += -DUSB_BCDDEVICE=$(USB_BCDDEVICE)
+
+# Microsoft OS descriptor scheme for Windows driverless binding:
+#   MSOS_USE_20=0 (default) : MS OS 1.0  (bcdUSB 2.00, string 0xEE) - candleLight
+#   MSOS_USE_20=1           : add BOS + MS OS 2.0 (bcdUSB 2.01)
+#   e.g.  make MSOS_USE_20=1
+MSOS_USE_20 ?= 0
+USER_DEFS += -DMSOS_USE_20=$(MSOS_USE_20)
+
 # USER_LDFLAGS: user LD flags
 USER_LDFLAGS = -fno-exceptions -ffunction-sections -fdata-sections -Wl,--gc-sections
 
